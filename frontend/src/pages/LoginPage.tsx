@@ -1,4 +1,4 @@
-import { Card, Form, Input, Button, Tabs, App as AntApp } from "antd";
+import { Form, Input, Button, Tabs, App as AntApp } from "antd";
 import { useNavigate } from "react-router-dom";
 import { login, register } from "../api/client";
 
@@ -70,15 +70,22 @@ function RegisterForm({ onDone }: { onDone: () => void }) {
 export default function LoginPage() {
   const navigate = useNavigate();
   return (
-    <div style={{ display: "flex", justifyContent: "center", paddingTop: 80 }}>
-      <Card title="多 Agent 对抗辩论模拟" style={{ width: 380 }}>
+    <div className="landing-hero" style={{ paddingTop: 70 }}>
+      <div
+        className="neu-raised"
+        style={{ width: 380, margin: "0 auto", padding: "26px 30px 30px" }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+          <span className="brand-mark">辩</span>
+          <strong style={{ color: "var(--ink)", fontSize: 16 }}>多 Agent 对抗辩论模拟</strong>
+        </div>
         <Tabs
           items={[
             { key: "login", label: "登录", children: <LoginForm onDone={() => navigate("/topics")} /> },
             { key: "register", label: "注册", children: <RegisterForm onDone={() => navigate("/topics")} /> },
           ]}
         />
-      </Card>
+      </div>
     </div>
   );
 }

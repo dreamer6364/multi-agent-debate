@@ -9,22 +9,22 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   workers: 1, // 共享 SQLite 开发库，串行执行
   use: {
-    baseURL: "http://localhost:5174",
+    baseURL: "http://localhost:5175",
     trace: "retain-on-failure",
   },
   webServer: [
     {
       // E2E 专用后端：独立端口 + 独立 SQLite（DEBATE_DB_URL），不碰本地 8000 的真实服务
-      command: [".venv", "Scripts", "python.exe"].join(sep) + " " + ["scripts", "dev_uvicorn.py"].join(sep) + " 8010",
+      command: [".venv", "Scripts", "python.exe"].join(sep) + " " + ["scripts", "dev_uvicorn.py"].join(sep) + " 8011",
       cwd: "../backend",
-      url: "http://127.0.0.1:8010/api/health",
+      url: "http://127.0.0.1:8011/api/health",
       env: { DEV_DB_URL: "sqlite+aiosqlite:///./debate-e2e.db" },
       timeout: 60_000,
     },
     {
-      command: "npm run dev -- --port 5174 --strictPort",
-      url: "http://localhost:5174",
-      env: { DEV_API_TARGET: "http://127.0.0.1:8010" },
+      command: "npm run dev -- --port 5175 --strictPort",
+      url: "http://localhost:5175",
+      env: { DEV_API_TARGET: "http://127.0.0.1:8011" },
       timeout: 60_000,
     },
   ],

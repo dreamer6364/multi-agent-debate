@@ -16,6 +16,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           多 Agent 对抗辩论模拟
         </div>
         <nav>
+          <NavLink to="/" end className={({ isActive }) => (isActive ? "nav-chip active" : "nav-chip")}>开始</NavLink>
           <NavLink to="/topics" className={({ isActive }) => (isActive ? "nav-chip active" : "nav-chip")}>辩题库</NavLink>
           <NavLink to="/debates" className={({ isActive }) => (isActive ? "nav-chip active" : "nav-chip")}>历史归档</NavLink>
         </nav>

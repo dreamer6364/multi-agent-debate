@@ -5,6 +5,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import AppLayout from "./components/AppLayout";
 import ArenaPage from "./pages/ArenaPage";
 import DebatesPage from "./pages/DebatesPage";
+import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import TopicsPage from "./pages/TopicsPage";
 import "./index.css";
@@ -62,7 +63,7 @@ export default function App() {
       <AntApp>
         <QueryClientProvider client={queryClient}>
           <Routes>
-            <Route path="/" element={<Navigate to="/topics" replace />} />
+            <Route path="/" element={<AppLayout><LandingPage /></AppLayout>} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/topics" element={<AppLayout><TopicsPage /></AppLayout>} />
             <Route path="/debates" element={<AppLayout><DebatesPage /></AppLayout>} />
