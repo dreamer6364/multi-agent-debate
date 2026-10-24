@@ -13,7 +13,7 @@ test("E2E-WEB-01 注册到归档导出的全链路", async ({ page }) => {
   const panel = page.getByRole("tabpanel", { name: "注册" });
   await panel.getByRole("textbox").nth(0).fill(username);
   await panel.getByRole("textbox").nth(1).fill("password8");
-  await panel.getByRole("button", { name: "注册并登录" }).click();
+  await panel.getByRole("button", { name: /注册并登录|创建我的席位/ }).click();
   await expect(page).toHaveURL(/\/topics/);
   await expect(page.getByText("内置").first()).toBeVisible(); // 辩题库已加载
 

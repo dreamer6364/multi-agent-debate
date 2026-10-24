@@ -271,3 +271,42 @@ a.neu-btn-accent.hero-btn { color: #fff; }
   .hero-title { font-size: 44px; }
   .hero-sub { font-size: 16px; }
 }
+
+/* ---- 登录页：双栏面板 + 柔和大圆装饰 ---- */
+.login-page {
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 40px 20px;
+  position: relative; overflow: hidden;
+}
+.login-deco {
+  position: absolute; border-radius: 50%; pointer-events: none;
+  background: var(--neu-bg);
+}
+.login-deco-raised {
+  width: 460px; height: 460px; top: -160px; left: -140px;
+  box-shadow: 18px 18px 36px var(--neu-dark), -18px -18px 36px var(--neu-light);
+  opacity: 0.55;
+}
+.login-deco-inset {
+  width: 380px; height: 380px; bottom: -150px; right: -120px;
+  box-shadow: inset 14px 14px 28px var(--neu-dark), inset -14px -14px 28px var(--neu-light);
+  opacity: 0.5;
+}
+.login-panel {
+  position: relative; z-index: 1;
+  width: 860px; max-width: 100%;
+  display: grid; grid-template-columns: 1fr; gap: 10px;
+  padding: 30px 32px;
+}
+.login-hero-title { font-size: 26px; font-weight: 700; color: var(--ink); margin: 0 0 8px; }
+.login-hero-sub { color: var(--ink-2); font-size: 13px; line-height: 1.85; margin: 0 0 18px; }
+.login-points { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+.login-point { display: flex; align-items: center; gap: 12px; }
+.login-duel { display: flex; align-items: center; gap: 14px; }
+.login-form-side .ant-tabs { margin-bottom: 0; }
+
+@media (min-width: 860px) {
+  .login-panel { grid-template-columns: 1.1fr 1fr; gap: 36px; padding: 38px 40px; }
+  .login-hero-title { font-size: 30px; }
+}
