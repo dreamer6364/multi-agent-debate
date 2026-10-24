@@ -73,7 +73,7 @@ export default function ArenaPage() {
 
   if (isError && (error as { response?: { status?: number } })?.response?.status === 404) {
     return (
-      <div style={{ padding: 24, maxWidth: 960, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1080 }}>
         <div className="neu-raised" style={{ padding: 24 }}>
           <div style={{ color: "var(--con-deep)", fontWeight: 700 }}>比赛不存在或不可见</div>
           <div style={{ color: "var(--ink-2)", fontSize: 14, margin: "6px 0 14px" }}>
@@ -94,10 +94,11 @@ export default function ArenaPage() {
     [speeches, phase],
   );
   return (
-    <div style={{ padding: 24, maxWidth: 960, margin: "0 auto" }}>
-      <div style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h2 style={{ margin: 0 }}>{detail?.topic.title ?? "…"}</h2>
-        <Space>
+    <div style={{ maxWidth: 1080 }}>
+      <div className="ws-toolbar">
+        <h2 className="ws-title" style={{ margin: 0 }}>{detail?.topic.title ?? "…"}</h2>
+        <div className="ws-actions">
+          <Space>
           <Tag>{STATUS_CN[status ?? ""] ?? "…"}</Tag>
           {running && (
             <Tag style={{ color: connected ? "var(--accent-deep)" : "var(--con-deep)" }}>
@@ -116,7 +117,8 @@ export default function ArenaPage() {
             </>
           )}
           <a className="neu-btn" style={{ padding: "4px 12px", fontSize: 13, textDecoration: "none", color: "var(--ink)" }} href="/debates">归档</a>
-        </Space>
+          </Space>
+        </div>
       </div>
 
       <div className="vs-banner">

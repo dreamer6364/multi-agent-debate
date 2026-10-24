@@ -13,7 +13,7 @@ function TopicCard({ topic, onLaunch, onDelete }: {
   return (
     <div
       className="neu-raised"
-      style={{ width: 360, padding: "18px 20px", display: "flex", flexDirection: "column", gap: 8 }}
+      style={{ width: 330, padding: "18px 20px", display: "flex", flexDirection: "column", gap: 8, transition: "box-shadow 0.3s ease-in-out" }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
         <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--ink)" }}>{topic.title}</h3>
@@ -88,16 +88,21 @@ export default function TopicsPage() {
     }
   };
 
+  const builtinCount = topics.filter((t) => t.is_builtin).length;
+  const ownCount = topics.length - builtinCount;
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between" }}>
-        <h2 style={{ color: "var(--ink)" }}>辩题库</h2>
-        <div>
-          <button className="neu-btn" style={{ padding: "7px 16px", marginRight: 8 }} onClick={() => setCustomOpen(true)}>新建辩题</button>
-          <button className="neu-btn" style={{ padding: "7px 16px" }} onClick={() => { window.location.href = "/debates"; }}>历史归档</button>
+    <div>
+      <div className="ws-toolbar">
+        <h2 className="ws-title">辩题库
+          <span style={{ fontSize: 12, fontWeight: 400, color: "var(--ink-2)", marginLeft: 10 }}>
+            共 {topics.length} 道（内置 {builtinCount} · 自建 {ownCount}）
+          </span>
+        </h2>
+        <div className="ws-actions">
+          <button className="neu-btn" style={{ padding: "7px 16px" }} onClick={() => setCustomOpen(true)}>新建辩题</button>
         </div>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 18 }}>
         {topics.map((t) => (
           <TopicCard key={t.id} topic={t} onLaunch={setLaunchTarget}
                      onDelete={(id) => void remove(id)} />

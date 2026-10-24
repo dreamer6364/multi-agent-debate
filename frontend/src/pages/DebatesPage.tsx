@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Table, Tag } from "antd";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getDebates } from "../api/client";
 import type { DebateStatus } from "../api/types";
@@ -27,15 +28,21 @@ export default function DebatesPage() {
     refetchInterval: 3000, // 进行中的比赛状态会变化，轻量轮询
   });
   const items = data?.items ?? [];
+  const [filter, setFilter] = useState<"all" | "running" | "finished">("all");
+  const filtered = filter === "all" ? items : items.filter((d) => d.status === filter);
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between" }}>
-        <h2 style={{ color: "var(--ink)" }}>历史归档</h2>
+    <div>
+      <div className="ws-toolbar">
+        <div className="seg">
+          {([["all", "全部"], ["running", "进行中"], ["finished", "已结束"]] as const).map(([key, label]) => (
+            <button key={key} className={filter === key ? "on" : ""} onClick={() => setFilter(key)}>{label}</button>
+          ))}
+        </div>
         <button className="neu-btn" style={{ padding: "7px 16px" }} onClick={() => { window.location.href = "/topics"; }}>返回辩题库</button>
       </div>
       <Table
         rowKey="id"
-        dataSource={items}
+        dataSource={filtered}
         pagination={{ pageSize: 10 }}
         onRow={(record) => ({ onClick: () => navigate(`/debates/${record.id}`), style: { cursor: "pointer" } })}
         columns={[
