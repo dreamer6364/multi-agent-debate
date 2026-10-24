@@ -310,3 +310,45 @@ a.neu-btn-accent.hero-btn { color: #fff; }
   .login-panel { grid-template-columns: 1.1fr 1fr; gap: 36px; padding: 38px 40px; }
   .login-hero-title { font-size: 30px; }
 }
+
+/* ---- 开始页 v2：灵动细节（仍在双光源规范内） ---- */
+/* 滚动渐显 */
+[data-reveal] { opacity: 0; transform: translateY(16px); transition: opacity 0.6s ease-in-out, transform 0.6s ease-in-out; }
+[data-reveal].revealed { opacity: 1; transform: none; }
+
+/* hero 对峙：双阵营呼吸浮动（相位相反，像两端互相施压） */
+@keyframes floatSoft {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+.hero-duel .duel-chip { animation: floatSoft 5s ease-in-out infinite; }
+.hero-duel .duel-chip.duel-con { animation-delay: -2.5s; }
+@keyframes vsBreathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.06); }
+}
+.hero-duel .duel-vs { animation: vsBreathe 5s ease-in-out infinite; }
+
+/* 金句轮播 */
+.quote-panel { margin: 30px auto 0; max-width: 640px; padding: 16px 22px; text-align: left; }
+.quote-text { color: var(--ink); font-size: 14px; line-height: 1.8; animation: fadeInUp 0.5s ease-in-out both; }
+.quote-side { color: var(--ink-3); font-size: 12px; margin-top: 8px; animation: fadeInUp 0.5s ease-in-out both; }
+.quote-dots { display: flex; gap: 6px; margin-top: 10px; }
+.quote-dot { width: 6px; height: 6px; border-radius: 50%; background: #c8cdd8; transition: background 0.3s ease-in-out; }
+.quote-dot.on { background: var(--accent); }
+
+/* 能力卡：hover 阴影收缩 + 图标凹凸翻转 */
+.feature-card { transition: box-shadow 0.3s ease-in-out, transform 0.3s ease-in-out; }
+.feature-card:hover { box-shadow: 4px 4px 8px var(--neu-dark), -4px -4px 8px var(--neu-light); }
+.feature-card .feature-icon { transition: all 0.3s ease-in-out; }
+.feature-card:hover .feature-icon { box-shadow: 4px 4px 8px var(--neu-dark), -4px -4px 8px var(--neu-light); background: var(--neu-bg-light); }
+
+/* 角色徽章：hover 收缩呼应 */
+.role-chip { transition: box-shadow 0.3s ease-in-out; }
+.role-chip:hover { box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light); }
+
+/* 卡片点缀色图标（四卡四色，深色变体保对比度） */
+.tint-brand { color: var(--accent-deep); }
+.tint-stream { color: #1f7a6c; }
+.tint-judge { color: var(--judge-deep); }
+.tint-archive { color: var(--con-deep); }
