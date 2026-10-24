@@ -176,6 +176,19 @@ async def test_export_md_and_html(env):
     assert "<svg" in html.text and "polygon" in html.text  # 内联 SVG 雷达图
     assert "逻辑评委" in html.text  # 导航与评分表
 
+    xlsx = await client.get(f"/api/debates/{debate_id}/export", params={"format": "xlsx"})
+    assert xlsx.status_code == 200
+    assert "spreadsheetml" in xlsx.headers["content-type"]
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(BytesIO(xlsx.content))
+    assert wb.sheetnames == ["评分与结果", "六维明细"]
+    ws = wb["评分与结果"]
+    assert ws["A1"].value.startswith("辩论评分表：")
+    assert any(cell.value == "逻辑评委" for row in ws.iter_rows() for cell in row)
+
     bad = await client.get(f"/api/debates/{debate_id}/export", params={"format": "pdf"})
     assert bad.status_code == 422
     await client.aclose()

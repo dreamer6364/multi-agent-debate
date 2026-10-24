@@ -112,6 +112,7 @@ export default function ArenaPage() {
             <>
               <a className="neu-btn" style={{ padding: "4px 12px", fontSize: 13, textDecoration: "none", color: "var(--ink)" }} href={`/api/debates/${debateId}/export?format=md`} target="_blank">导出实录 (MD)</a>
               <a className="neu-btn" style={{ padding: "4px 12px", fontSize: 13, textDecoration: "none", color: "var(--ink)" }} href={`/api/debates/${debateId}/export?format=html`} target="_blank">导出报告 (HTML)</a>
+              <a className="neu-btn" style={{ padding: "4px 12px", fontSize: 13, textDecoration: "none", color: "var(--ink)" }} href={`/api/debates/${debateId}/export?format=xlsx`} target="_blank">导出评分 (XLSX)</a>
             </>
           )}
           <a className="neu-btn" style={{ padding: "4px 12px", fontSize: 13, textDecoration: "none", color: "var(--ink)" }} href="/debates">归档</a>

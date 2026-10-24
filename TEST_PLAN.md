@@ -49,7 +49,7 @@
 
 | 项 | 规格 |
 |---|---|
-| 测试库 | MySQL `mad_test`（compose 内 service），session 级 Alembic 建表，**用例级 TRUNCATE**（不用事务回滚——引擎是异步后台任务，须可见提交）。**v2.1 修订**：开发环境无 MySQL 凭据时回落 SQLite(aiosqlite, tmp 文件)，SQLModel 可移植，生产路径不变 |
+| 测试库 | **v2.2 终版**：全栈统一 MySQL——后端用例 `mad_test`（用例间 TRUNCATE + FOREIGN_KEY_CHECKS=0），E2E 用 `mad_e2e`（webServer env 注入）；SQLite 保留为无 MySQL 环境的可选回落 |
 | 环境变量 | `MYSQL_URL_TEST`、`JWT_SECRET=test`、`FAKE_LLM=1`（后端启动时以 FakeLLM 替换 gateway） |
 | SSE 直播测试 | **必须走真实 uvicorn 线程服务器**（`LiveServer`，v2.1 增补）——httpx `ASGITransport` 会缓冲完整响应体，阻塞中的比赛一个字节都吐不出来，流式语义在测试传输层失真 |
 | 种子 | 内置辩题 3 条（PRD §7）由迁移写入；测试用户 `alice`/`bob`（密码 `password8`）由 fixture 创建 |

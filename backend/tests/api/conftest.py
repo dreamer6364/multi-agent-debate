@@ -17,11 +17,16 @@ from zoneinfo import ZoneInfo
 import pytest
 import uvicorn
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
+from sqlmodel import SQLModel
 
 from debate.api.app import create_app
 from debate.engine.llm.gateway import Gateway
 
 _TZ = ZoneInfo("Asia/Shanghai")
+
+# v2.2：测试库全面切 MySQL（mad_test），用例间 TRUNCATE；SQLite 仅作为可选回落
+TEST_DB_URL = "mysql+asyncmy://root:12345678mxy@localhost:3306/mad_test?charset=utf8mb4"
 
 
 class LiveServer:
@@ -97,10 +102,10 @@ class BlockingBackend:
             yield text[i : i + 4]
 
 
-def make_app(backend_root: Path, tmp_path: Path, *, gateway_factory=None, now_fn=None, **kwargs):
+def make_app(backend_root: Path, tmp_path: Path | None = None, *, gateway_factory=None, now_fn=None, **kwargs):
     return create_app(
         config_path=backend_root / "config.yaml",
-        db_url=f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
+        db_url=TEST_DB_URL,
         jwt_secret="test-secret",
         config_overrides={"procedure": {"phases": {"free_debate": 1.0}}},
         gateway_factory=gateway_factory or fake_gateway_factory(backend_root),
@@ -115,6 +120,23 @@ def _fake_columns(speeches):
         return {}
     return {"definition_judge": "双方定义与判准已记录在案。", "arguments": "论点继续展开。",
             "clashes": "交锋持续。", "fallacies": "互相指出瑕疵。", "situation": "局势推进。"}
+
+
+@pytest.fixture(autouse=True)
+async def _mysql_clean_db():
+    """每个用例前：建表 + 清空全部业务表（MySQL mad_test）。"""
+    from sqlalchemy.ext.asyncio import create_async_engine as _cae
+    from sqlmodel import SQLModel as _SM
+
+    engine = _cae(TEST_DB_URL)
+    async with engine.begin() as conn:
+        await conn.run_sync(_SM.metadata.create_all)
+        await conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
+        for t in reversed(_SM.metadata.sorted_tables):
+            await conn.execute(text(f"TRUNCATE TABLE {t.name}"))
+        await conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
+    yield
+    await engine.dispose()
 
 
 @pytest.fixture

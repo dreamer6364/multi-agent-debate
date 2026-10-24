@@ -36,7 +36,7 @@ _overrides = _script_meta.get("config_overrides", {})
 
 app = create_app(
     config_path=BACKEND_ROOT / "config.yaml",
-    db_url=os.environ.get("DEV_DB_URL"),  # E2E 可注入独立 SQLite，避免与本地服务共库
+    db_url=os.environ.get("DEV_DB_URL"),  # 默认跟随 .env 的 MySQL；E2E 注入 mad_e2e 隔离库
     gateway_factory=gateway_factory,
     compressor_factory=lambda config, gateway: fake_columns,
     config_overrides=_overrides or None,

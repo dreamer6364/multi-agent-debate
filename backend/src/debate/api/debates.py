@@ -13,6 +13,7 @@ from sqlmodel import func, select
 from ..db.models import DebateRow, ScorecardRow, SpeechRow, TopicRow, iso_cn
 from ..engine.render.markdown import render_scorecard_md, render_transcript_md
 from ..engine.render.html import render_report_html
+from ..engine.render.xlsx import render_scorecard_xlsx
 from ..engine.runner import DebateResult
 from ..engine.schema import CAMP_CN, Camp, DebateFormat, ScoreCard, Speech, Topic, Verdict
 from ..services.debate_service import QuotaExceeded
@@ -204,8 +205,8 @@ async def stop_debate(debate_id: int, request: Request, user=Depends(get_current
 async def export_debate(debate_id: int, request: Request, format: str = "md",
                         user=Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     state: AppState = get_state(request)
-    if format not in ("md", "html"):
-        raise ApiError(422, "VALIDATION_ERROR", "format 仅允许 md / html")
+    if format not in ("md", "html", "xlsx"):
+        raise ApiError(422, "VALIDATION_ERROR", "format 仅允许 md / html / xlsx")
     debate = await _owned_debate(session, debate_id, user.id)
     if debate.status != "finished":
         raise ApiError(409, "EXPORT_NOT_READY", "比赛尚未结束，无法导出")
@@ -217,10 +218,14 @@ async def export_debate(debate_id: int, request: Request, format: str = "md",
         content = render_transcript_md(engine_topic, fmt, result, state.config)
         media_type = "text/markdown"
         filename = f"debate-{debate.id}-transcript.md"
-    else:
+    elif format == "html":
         content = render_report_html(engine_topic, fmt, result, state.config)
         media_type = "text/html"
         filename = f"debate-{debate.id}-report.html"
+    else:
+        content = render_scorecard_xlsx(engine_topic, fmt, result, state.config)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        filename = f"debate-{debate.id}-scorecard.xlsx"
     return Response(
         content=content, media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},

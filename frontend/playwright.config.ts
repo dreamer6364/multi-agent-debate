@@ -18,7 +18,7 @@ export default defineConfig({
       command: [".venv", "Scripts", "python.exe"].join(sep) + " " + ["scripts", "dev_uvicorn.py"].join(sep) + " 8011",
       cwd: "../backend",
       url: "http://127.0.0.1:8011/api/health",
-      env: { DEV_DB_URL: "sqlite+aiosqlite:///./debate-e2e.db" },
+      env: { DEV_DB_URL: "mysql+asyncmy://root:12345678mxy@localhost:3306/mad_e2e?charset=utf8mb4" },
       timeout: 60_000,
     },
     {
