@@ -1,0 +1,41 @@
+"""进程内事件总线（ARCH A1，单实例假设；水平扩展时以 Redis pub/sub 替换本文件）。
+
+每个进行中的比赛一个总线。speech 事件 id = 发言 seq（断线续传锚点）；
+其余事件 id 为总线内单调自增（SPEC §6.1/§6.2）。只在事件循环线程调用 publish。
+"""
+from __future__ import annotations
+
+import asyncio
+
+
+class EventBus:
+    def __init__(self, debate_id: int):
+        self.debate_id = debate_id
+        self._subscribers: set[asyncio.Queue] = set()
+        self._non_speech_id = 0
+        self.last_phase_start: dict | None = None  # 重连快照用（SPEC §6.1）
+        self.closed = False
+
+    def allocate_id(self) -> int:
+        self._non_speech_id += 1
+        return self._non_speech_id
+
+    def publish(self, event: dict) -> None:
+        kind = event.get("event")
+        if kind != "speech":
+            event = {**event, "id": self.allocate_id()}
+            if kind == "phase_start":
+                self.last_phase_start = event["data"]
+        for queue in list(self._subscribers):
+            queue.put_nowait(event)
+
+    def subscribe(self) -> asyncio.Queue:
+        queue: asyncio.Queue = asyncio.Queue()
+        self._subscribers.add(queue)
+        return queue
+
+    def unsubscribe(self, queue: asyncio.Queue) -> None:
+        self._subscribers.discard(queue)
+
+    def close(self) -> None:
+        self.closed = True

@@ -1,0 +1,344 @@
+"""比赛端点（SPEC §5.2/§6）：发起（配额闸）、列表、详情、发言、终止、导出、SSE 直播。归属隔离。"""
+from __future__ import annotations
+
+import asyncio
+import json
+
+from fastapi import APIRouter, Depends, Request, Response
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import func, select
+
+from ..db.models import DebateRow, ScorecardRow, SpeechRow, TopicRow, iso_cn
+from ..engine.render.markdown import render_scorecard_md, render_transcript_md
+from ..engine.render.html import render_report_html
+from ..engine.runner import DebateResult
+from ..engine.schema import CAMP_CN, Camp, DebateFormat, ScoreCard, Speech, Topic, Verdict
+from ..services.debate_service import QuotaExceeded
+from .deps import AppState, get_current_user, get_session, get_state
+from .errors import ApiError
+
+router = APIRouter(prefix="/api/debates", tags=["debates"])
+
+
+class CustomTopicIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    pro_points: str = Field(min_length=1)
+    con_points: str = Field(min_length=1)
+    pro_stance: str = ""
+    con_stance: str = ""
+
+
+class DebateCreateIn(BaseModel):
+    topic_id: int | None = None
+    custom_topic: CustomTopicIn | None = None
+    format: str = "full"
+    judges: int = 3
+
+
+def _fmt_num(value: float | int | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+async def _owned_debate(session: AsyncSession, debate_id: int, user_id: int) -> DebateRow:
+    debate = await session.get(DebateRow, debate_id)
+    if debate is None or debate.owner_id != user_id:
+        raise ApiError(404, "NOT_FOUND", "比赛不存在")  # 不泄露他人资源存在性
+    return debate
+
+
+async def _load_topic_row(session: AsyncSession, topic_id: int) -> TopicRow:
+    row = await session.get(TopicRow, topic_id)
+    if row is None:
+        raise ApiError(404, "NOT_FOUND", "辩题不存在")
+    return row
+
+
+def _row_to_engine_topic(row: TopicRow) -> Topic:
+    return Topic(
+        topic_id=str(row.id), title=row.title,
+        pro_stance=row.pro_stance, con_stance=row.con_stance,
+        pro_points=[p for p in row.pro_points.split("\n") if p.strip()],
+        con_points=[p for p in row.con_points.split("\n") if p.strip()],
+    )
+
+
+@router.post("", status_code=202)
+async def create_debate(body: DebateCreateIn, request: Request,
+                        user=Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    state: AppState = get_state(request)
+    if (body.topic_id is None) == (body.custom_topic is None):
+        raise ApiError(422, "VALIDATION_ERROR", "topic_id 与 custom_topic 二选一")
+    if body.format not in ("full", "lite"):
+        raise ApiError(422, "VALIDATION_ERROR", "format 仅允许 full / lite")
+    if body.judges not in (1, 3, 5):
+        raise ApiError(422, "VALIDATION_ERROR", "judges 仅允许 1 / 3 / 5")
+
+    if body.custom_topic is not None:
+        ct = body.custom_topic
+        topic_row = TopicRow(
+            owner_id=user.id, title=ct.title,
+            pro_stance=ct.pro_stance or f"支持：{ct.title.split('/')[0].strip()}",
+            con_stance=ct.con_stance or f"支持：{ct.title.split('/')[-1].strip()}",
+            pro_points=ct.pro_points, con_points=ct.con_points,
+        )
+        session.add(topic_row)
+        await session.commit()
+        await session.refresh(topic_row)
+    else:
+        topic_row = await _load_topic_row(session, body.topic_id)
+        if not topic_row.is_builtin and topic_row.owner_id != user.id:
+            raise ApiError(404, "NOT_FOUND", "辩题不存在")
+
+    try:
+        await state.service.check_quota(user.id)
+    except QuotaExceeded as exc:
+        raise ApiError(429, exc.code, exc.message) from exc
+
+    debate = DebateRow(
+        topic_id=topic_row.id, owner_id=user.id, format=body.format, status="pending",
+        cfg_json={
+            "judges": body.judges,
+            "speed_cpm": state.config.procedure.speed_cpm,
+            "phase_durations": state.config.procedure.phases.model_dump(),
+        },
+    )
+    session.add(debate)
+    await session.commit()
+    await session.refresh(debate)
+
+    state.service.start(debate_id=debate.id, topic=_row_to_engine_topic(topic_row),
+                        fmt=DebateFormat(body.format))
+    return {"id": debate.id, "status": debate.status}
+
+
+@router.get("")
+async def list_debates(request: Request, status: str | None = None, page: int = 1, page_size: int = 20,
+                       user=Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    page, page_size = max(page, 1), min(max(page_size, 1), 100)
+    conditions = [DebateRow.owner_id == user.id]
+    if status:
+        conditions.append(DebateRow.status == status)
+    total = (await session.execute(
+        select(func.count()).select_from(DebateRow).where(*conditions)
+    )).scalar_one()
+    rows = (await session.execute(
+        select(DebateRow).where(*conditions).order_by(DebateRow.id.desc())
+        .offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+    items = []
+    for row in rows:
+        topic_row = await _load_topic_row(session, row.topic_id)
+        items.append({
+            "id": row.id, "topic_title": topic_row.title, "format": row.format,
+            "status": row.status, "winner": row.winner, "created_at": iso_cn(row.created_at),
+        })
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+@router.get("/{debate_id}")
+async def get_debate(debate_id: int, user=Depends(get_current_user),
+                     session: AsyncSession = Depends(get_session)):
+    debate = await _owned_debate(session, debate_id, user.id)
+    topic_row = await _load_topic_row(session, debate.topic_id)
+    card_rows = (await session.execute(
+        select(ScorecardRow).where(ScorecardRow.debate_id == debate.id)
+    )).scalars().all()
+    return {
+        "id": debate.id,
+        "topic": {"id": topic_row.id, "title": topic_row.title},
+        "format": debate.format, "status": debate.status, "cfg": debate.cfg_json,
+        "winner": debate.winner, "best_speaker": debate.best_speaker,
+        "team_totals": {"pro": _fmt_num(debate.team_total_pro), "con": _fmt_num(debate.team_total_con)},
+        "votes": debate.votes_json, "usage": debate.usage_json, "error": debate.error,
+        "scorecards": [{
+            "judge": c.judge, "focus": c.focus, "vote": c.vote,
+            "best_speaker": c.best_speaker, "abstained": c.abstained,
+            "pro_total": sum((c.scores_json or {}).get("pro_scores", {}).values()),
+            "con_total": sum((c.scores_json or {}).get("con_scores", {}).values()),
+        } for c in card_rows],
+        "started_at": iso_cn(debate.started_at), "finished_at": iso_cn(debate.finished_at),
+        "created_at": iso_cn(debate.created_at),
+    }
+
+
+@router.get("/{debate_id}/speeches")
+async def list_speeches(debate_id: int, after_seq: int = 0, limit: int = 200,
+                        user=Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    await _owned_debate(session, debate_id, user.id)
+    limit = min(max(limit, 1), 500)
+    rows = (await session.execute(
+        select(SpeechRow).where(SpeechRow.debate_id == debate_id, SpeechRow.seq > after_seq)
+        .order_by(SpeechRow.seq).limit(limit)
+    )).scalars().all()
+    items = [{
+        "seq": r.seq, "phase": r.phase, "phase_name": r.phase_name,
+        "speaker": r.speaker_role, "camp": r.camp, "text": r.text,
+        "side_notes": r.side_notes or [], "interrupted": r.interrupted,
+        "word_count": r.word_count, "tokens": r.tokens,
+    } for r in rows]
+    return {"items": items, "has_more": len(items) == limit}
+
+
+@router.post("/{debate_id}/stop")
+async def stop_debate(debate_id: int, request: Request, user=Depends(get_current_user),
+                      session: AsyncSession = Depends(get_session)):
+    state: AppState = get_state(request)
+    debate = await _owned_debate(session, debate_id, user.id)
+    if debate.status not in ("pending", "running"):
+        raise ApiError(409, "DEBATE_NOT_RUNNING", "比赛不在进行中")
+    # 立即改状态 + 置取消旗标；引擎在节点边界退出后 finalize 仍写 stopped（竞态窗口内若已完成则终态为 finished）
+    debate.status = "stopped"
+    session.add(debate)
+    await session.commit()
+    state.service.request_cancel(debate_id)
+    return {"status": "stopped"}
+
+
+@router.get("/{debate_id}/export")
+async def export_debate(debate_id: int, request: Request, format: str = "md",
+                        user=Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    state: AppState = get_state(request)
+    if format not in ("md", "html"):
+        raise ApiError(422, "VALIDATION_ERROR", "format 仅允许 md / html")
+    debate = await _owned_debate(session, debate_id, user.id)
+    if debate.status != "finished":
+        raise ApiError(409, "EXPORT_NOT_READY", "比赛尚未结束，无法导出")
+    topic_row = await _load_topic_row(session, debate.topic_id)
+    engine_topic = _row_to_engine_topic(topic_row)
+    fmt = DebateFormat(debate.format)
+    result = await _result_from_rows(session, debate)
+    if format == "md":
+        content = render_transcript_md(engine_topic, fmt, result, state.config)
+        media_type = "text/markdown"
+        filename = f"debate-{debate.id}-transcript.md"
+    else:
+        content = render_report_html(engine_topic, fmt, result, state.config)
+        media_type = "text/html"
+        filename = f"debate-{debate.id}-report.html"
+    return Response(
+        content=content, media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _sse(event: dict) -> str:
+    lines = []
+    if event.get("id") is not None:
+        lines.append(f"id: {event['id']}")
+    lines.append(f"event: {event['event']}")
+    lines.append(f"data: {json.dumps(event['data'], ensure_ascii=False)}")
+    return "\n".join(lines) + "\n\n"
+
+
+@router.get("/{debate_id}/stream")
+async def stream_debate(debate_id: int, request: Request, after_seq: int = 0,
+                        user=Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    state: AppState = get_state(request)
+    debate = await _owned_debate(session, debate_id, user.id)
+    bus = state.service.get_bus(debate_id)
+    terminal = debate.status in ("finished", "failed", "stopped")
+
+    async def event_stream():
+        # 1) 先订阅（若进行中），再重放 DB——重叠部分按 seq 去重，杜绝断线丢事件（ARCH A2）
+        live_queue = bus.subscribe() if (bus is not None and not terminal and not bus.closed) else None
+        try:
+            last_seq = after_seq
+            own_session = state.sessionmaker()
+            try:
+                rows = (await own_session.execute(
+                    select(SpeechRow).where(SpeechRow.debate_id == debate_id, SpeechRow.seq > after_seq)
+                    .order_by(SpeechRow.seq)
+                )).scalars().all()
+            finally:
+                await own_session.close()
+            for row in rows:
+                last_seq = row.seq
+                yield _sse({"event": "speech", "id": row.seq, "data": {
+                    "seq": row.seq, "speaker": row.speaker_role, "camp": row.camp,
+                    "text": row.text, "interrupted": row.interrupted,
+                    "side_notes": list(row.side_notes or []),
+                }})
+            # 2) 快照：终态直接收尾；进行中补 status + 最近 phase_start
+            if terminal or bus is None or live_queue is None:
+                yield _sse({"event": "status", "id": (bus.allocate_id() if bus else None),
+                            "data": {"status": debate.status, "error": debate.error}})
+                return
+            yield _sse({"event": "status", "id": bus.allocate_id(),
+                        "data": {"status": debate.status, "error": None}})
+            if bus.last_phase_start:
+                yield _sse({"event": "phase_start", "id": bus.allocate_id(),
+                            "data": bus.last_phase_start})
+            # 3) 实时消费
+            while True:
+                try:
+                    event = await asyncio.wait_for(live_queue.get(), timeout=state.sse_heartbeat)
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"  # 心跳保活（CONSTRAINTS F2）
+                    continue
+                kind = event["event"]
+                if kind == "speech":
+                    if event["data"]["seq"] <= last_seq:
+                        continue
+                    last_seq = event["data"]["seq"]
+                yield _sse(event)
+                if kind == "status" and event["data"].get("status") in ("finished", "failed", "stopped"):
+                    return
+        finally:
+            if live_queue is not None and bus is not None:
+                bus.unsubscribe(live_queue)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
+
+
+async def _result_from_rows(session: AsyncSession, debate: DebateRow) -> DebateResult:
+    """从 DB 行重建 DebateResult 形状，复用引擎渲染层（ARCH A4）。"""
+    speech_rows = (await session.execute(
+        select(SpeechRow).where(SpeechRow.debate_id == debate.id).order_by(SpeechRow.seq)
+    )).scalars().all()
+    transcript = [Speech(
+        seq=r.seq, phase=r.phase, phase_name=r.phase_name, speaker=r.speaker_role,
+        camp=Camp(r.camp), text=r.text, side_notes=list(r.side_notes or []),
+        interrupted=r.interrupted, word_count=r.word_count, tokens=r.tokens,
+    ) for r in speech_rows]
+
+    card_rows = (await session.execute(
+        select(ScorecardRow).where(ScorecardRow.debate_id == debate.id)
+    )).scalars().all()
+    scorecards = [ScoreCard(
+        judge=r.judge, focus=r.focus,
+        pro_scores=r.scores_json.get("pro_scores", {}),
+        con_scores=r.scores_json.get("con_scores", {}),
+        vote=Camp(r.vote) if r.vote else None, best_speaker=r.best_speaker,
+        highlights={Camp.PRO: (r.highlights_json or {}).get("pro", []),
+                    Camp.CON: (r.highlights_json or {}).get("con", [])},
+        weaknesses={Camp.PRO: (r.weaknesses_json or {}).get("pro", []),
+                    Camp.CON: (r.weaknesses_json or {}).get("con", [])},
+        abstained=r.abstained,
+    ) for r in card_rows]
+
+    votes_raw = debate.votes_json or {}
+    votes = {Camp.PRO: int(votes_raw.get("pro", 0)), Camp.CON: int(votes_raw.get("con", 0))}
+    totals = {Camp.PRO: float(debate.team_total_pro or 0), Camp.CON: float(debate.team_total_con or 0)}
+    if votes[Camp.PRO] != votes[Camp.CON]:
+        rule = "majority"
+    elif totals[Camp.PRO] != totals[Camp.CON]:
+        rule = "team_total"
+    else:
+        rule = "best_speaker" if debate.winner else "unresolved"
+    verdict = Verdict(
+        votes=votes, team_totals=totals,
+        winner=Camp(debate.winner) if debate.winner else None,
+        best_speaker=debate.best_speaker, decisive_rule=rule,
+    )
+    return DebateResult(status=debate.status, transcript=transcript,
+                        scorecards=scorecards, verdict=verdict)

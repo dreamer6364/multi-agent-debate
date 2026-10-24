@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>辩论报告：{{ title }}</title>
+<style>
+  body { margin:0; background:#f0f2f5; color:#1f2328; font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif; }
+  .layout { display:flex; max-width:1120px; margin:0 auto; }
+  nav { width:190px; position:sticky; top:0; align-self:flex-start; padding:24px 8px; }
+  nav a { display:block; padding:6px 10px; color:#444; text-decoration:none; border-radius:6px; font-size:13px; }
+  nav a:hover { background:#e6eaff; }
+  main { flex:1; padding:24px; min-width:0; }
+  h1 { font-size:22px; margin:0 0 10px; }
+  .meta { color:#667085; font-size:13px; margin-bottom:18px; }
+  .meta p { margin:4px 0; }
+  .banner { border-radius:10px; padding:14px 20px; margin-bottom:16px; font-size:15px; }
+  .banner.pro { background:#eaf1fe; border:1px solid #2563eb; }
+  .banner.con { background:#fdecec; border:1px solid #dc2626; }
+  .banner.tie { background:#fff7e6; border:1px solid #d97706; }
+  section { background:#fff; border-radius:10px; padding:16px 20px; margin-bottom:16px; box-shadow:0 1px 2px rgba(0,0,0,.05); }
+  section h2 { font-size:16px; margin:0 0 12px; }
+  .speech { border-left:4px solid #ccc; background:#fafafa; border-radius:6px; padding:10px 14px; margin-bottom:10px; }
+  .speech .speaker { font-weight:700; }
+  .speech .text { margin-top:4px; white-space:pre-wrap; }
+  .speech.pro { border-color:#2563eb; } .speech.pro .speaker { color:#2563eb; }
+  .speech.con { border-color:#dc2626; } .speech.con .speaker { color:#dc2626; }
+  .speech.chair { border-color:#6b7280; } .speech.chair .speaker { color:#6b7280; }
+  .speech.timekeeper { border-color:#d97706; } .speech.timekeeper .speaker { color:#d97706; }
+  .speech.judge { border-color:#a16207; } .speech.judge .speaker { color:#a16207; }
+  .note { color:#8b93a1; font-size:12px; font-style:italic; margin-top:2px; }
+  .truncated { color:#b42318; font-size:12px; margin-top:2px; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th, td { border:1px solid #e4e7ec; padding:6px 10px; text-align:left; }
+  th { background:#f5f7fa; }
+  .radar { display:flex; align-items:center; gap:24px; margin-top:14px; flex-wrap:wrap; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav>
+    {% for s in sections %}<a href="#{{ s.anchor }}">{{ s.label }}</a>{% endfor %}
+    <a href="#score">评分与结果</a>
+  </nav>
+  <main>
+    <h1>辩论报告：{{ title }}</h1>
+    <div class="meta">
+      <p>赛制：{{ fmt_cn }} ｜ 日期：{{ date }} ｜ 结果：{{ winner_line }}</p>
+      <p>LLM 用量：{{ usage_calls }} 次调用 / {{ usage_tokens }} tokens</p>
+    </div>
+    {% if banner_text %}<div class="banner {{ banner_class }}">{{ banner_text }}</div>{% endif %}
+
+    {% for s in sections %}
+    <section id="{{ s.anchor }}">
+      <h2>{{ s.label }}{{ s.budget }}</h2>
+      {% for item in s.speeches %}
+      <div class="speech {{ item.cls }}">
+        <span class="speaker">{{ item.speaker }}</span>
+        <div class="text">{{ item.text }}</div>
+        {% for note in item.notes %}<div class="note">（{{ note }}）</div>{% endfor %}
+        {% if item.truncated %}<div class="truncated">（被计时截断）</div>{% endif %}
+      </div>
+      {% endfor %}
+    </section>
+    {% endfor %}
+
+    {% if scorecards %}
+    <section id="score">
+      <h2>评分与结果</h2>
+      <table>
+        <tr><th>评委</th><th>正方</th><th>反方</th><th>投票</th><th>最佳辩手</th></tr>
+        {% for c in scorecards %}
+        <tr>
+          <td>{{ c.judge }}{% if c.abstained %}（弃权）{% endif %}</td>
+          <td>{{ c.pro_total }}</td>
+          <td>{{ c.con_total }}</td>
+          <td>{{ c.vote }}</td>
+          <td>{{ c.best }}</td>
+        </tr>
+        {% endfor %}
+        <tr>
+          <th>结果</th><th>团体总分 {{ totals_pro }}</th><th>团体总分 {{ totals_con }}</th>
+          <th>{{ votes_pro }} : {{ votes_con }}</th><th>最佳辩手：{{ best }}</th>
+        </tr>
+      </table>
+      <div class="radar">
+        <svg width="220" height="200" role="img" aria-label="六维评分雷达图">
+          {% for ring in radar.rings %}<polygon points="{{ ring }}" fill="none" stroke="#d9d9d9"/>{% endfor %}
+          {% for ax in radar.axes %}
+          <line x1="110" y1="100" x2="{{ ax.x }}" y2="{{ ax.y }}" stroke="#d9d9d9"/>
+          <text x="{{ ax.lx }}" y="{{ ax.ly }}" font-size="11" text-anchor="middle">{{ ax.label }}</text>
+          {% endfor %}
+          <polygon points="{{ radar.con }}" fill="#dc262622" stroke="#dc2626"/>
+          <polygon points="{{ radar.pro }}" fill="#2563eb22" stroke="#2563eb"/>
+        </svg>
+        <div>
+          <p><span style="color:#2563eb">● 正方 {{ radar.pro_avg }}</span>　<span style="color:#dc2626">● 反方 {{ radar.con_avg }}</span></p>
+          <p>决胜依据：{{ rule_cn }}</p>
+          <p>最佳辩手：{{ best }}</p>
+        </div>
+      </div>
+    </section>
+    {% endif %}
+  </main>
+</div>
+</body>
+</html>

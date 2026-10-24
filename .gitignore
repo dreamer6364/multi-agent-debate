@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# 环境与密钥（CONSTRAINTS：.env 不入库）
+.env
+
+# 辩论输出（CLI 模式产物）与本地/E2E 测试库
+backend/debate/
+backend/debate-dev.db
+backend/debate-e2e.db
+
+# Playwright 产物
+frontend/test-results/
+frontend/playwright-report/
+
+# 前端（M5 起）
+node_modules/
+frontend/dist/
+
+# ZCode 本地工具（技能等，非项目代码）
+.zcode/
+
+# 构建产物
+dist/
+build/
+debate-e2e.db

@@ -1,0 +1,122 @@
+"""Agent 上下文组装（SPEC §4.4 / AGENT_CONSTRAINTS §6 可见性矩阵）。
+
+五段注入：system(conduct+role) → 辩题与立场 → digest → 最近 K 条原文 → 环节任务。
+立场信息隔离：辩手只拿本方破题要点；评委拿双方 + 摘录池。
+超限裁剪顺序：④最近原文 → ③digest → ②要点（SPEC §4.4 修订口径，见模块注）。
+"""
+from __future__ import annotations
+
+from ..schema import CAMP_CN, Camp, Speech, Topic
+from .loader import AgentSpec
+
+
+def estimate_tokens(text: str) -> int:
+    """估算口径：中文 1 字 ≈ 1 token（偏保守，仅用于输入预算控制）。"""
+    return max(1, len(text))
+
+
+def _stance_of(topic: Topic, camp: Camp) -> str:
+    return topic.stance_for(camp)
+
+
+def _points_of(topic: Topic, camp: Camp) -> list[str]:
+    return topic.points_for(camp)
+
+
+def _points_block(topic: Topic, camp: Camp) -> str:
+    lines = [f"【本方立场】{_stance_of(topic, camp)}", "【本方破题要点】"]
+    lines += [f"- {p}" for p in _points_of(topic, camp)]
+    return "\n".join(lines)
+
+
+def _recent_block(recent: list[Speech]) -> str:
+    if not recent:
+        return "【最近发言】\n（暂无）"
+    lines = [f"[{s.seq}][{CAMP_CN[s.camp]}·{s.speaker}] {s.text}" for s in recent]
+    return "【最近发言】\n" + "\n".join(lines)
+
+
+def _assemble(system: str, blocks: list[str]) -> list[dict[str, str]]:
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": "\n\n".join(blocks)},
+    ]
+
+
+def _total_tokens(messages: list[dict[str, str]]) -> int:
+    return sum(estimate_tokens(m["content"]) for m in messages)
+
+
+def build_debater_messages(
+    *,
+    spec: AgentSpec,
+    topic: Topic,
+    digest_text: str,
+    recent: list[Speech],
+    instruction: str,
+    recent_k: int = 6,
+    max_input_tokens: int | None = None,
+) -> list[dict[str, str]]:
+    """辩手调用消息。超 max_input_tokens 时按 ④最近原文 → ③digest → ②要点 裁剪。"""
+    recent = list(recent[-recent_k:]) if recent_k > 0 else []
+
+    def assemble(points: list[str], digest: str, recent_part: list[Speech]) -> list[dict[str, str]]:
+        blocks = [
+            _points_block(topic, spec.camp),
+            f"【战局摘要】\n{digest}" if digest else "【战局摘要】\n（比赛刚开始）",
+            _recent_block(recent_part),
+            f"【本环节任务】\n{instruction}",
+        ]
+        return _assemble(spec.system_prompt, blocks)
+
+    if max_input_tokens is None:
+        return assemble(_points_of(topic, spec.camp), digest_text, recent)
+
+    current_points = list(_points_of(topic, spec.camp))
+    current_digest = digest_text
+    current_recent = recent
+    messages = assemble(current_points, current_digest, current_recent)
+    guard = 0
+    while _total_tokens(messages) > max_input_tokens and guard < 8:
+        guard += 1
+        if current_recent:
+            current_recent = []  # 第一刀：砍最近原文
+        elif len(current_digest) > 200:
+            current_digest = current_digest[: len(current_digest) // 2]  # 第二刀：压缩摘要
+        elif len(current_points) > 1:
+            current_points = current_points[:1]  # 第三刀：要点只留第一条
+        else:
+            break
+        messages = assemble(current_points, current_digest, current_recent)
+    return messages
+
+
+def build_judge_messages(
+    *,
+    spec: AgentSpec,
+    topic: Topic,
+    digest_text: str,
+    excerpts: list,
+    checklist: str,
+    instruction: str,
+) -> list[dict[str, str]]:
+    """评委调用消息：双方立场与要点 + digest + 原文摘录池 + 各环节要点清单。"""
+    both = (
+        f"【正方立场】{topic.pro_stance}\n【正方破题要点】\n"
+        + "\n".join(f"- {p}" for p in topic.pro_points)
+        + "\n\n"
+        + f"【反方立场】{topic.con_stance}\n【反方破题要点】\n"
+        + "\n".join(f"- {p}" for p in topic.con_points)
+    )
+    pool_lines = [
+        f"- [P{e.phase}][{CAMP_CN[e.camp]}·{e.speaker}] {e.text}" for e in excerpts
+    ]
+    blocks = [
+        f"【辩题】{topic.title}",
+        both,
+        f"【战局摘要】\n{digest_text}",
+        "【原文摘录】\n" + ("\n".join(pool_lines) if pool_lines else "（暂无）"),
+        f"【各环节要点清单】\n{checklist}",
+        f"【评审任务】\n{instruction}",
+    ]
+    return _assemble(spec.system_prompt, blocks)

@@ -1,0 +1,55 @@
+"""引擎运行时上下文与流程级异常（ARCH §4.2 DebateState 之外的"闭包依赖"）。
+
+依赖（config/topic/agents/gateway/回调）走闭包注入而非图状态，
+保证图状态可序列化、节点纯净（CONSTRAINTS B2：引擎不感知 Web）。
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Callable
+
+from .llm.gateway import Gateway
+from .schema import DebateFormat, Speech, Topic
+from .agents.loader import AgentSpec
+from ..core.config import AppConfig
+
+
+class DebateCancelled(Exception):
+    """协作式取消（stop）：在节点边界退出，已产出发言保留。"""
+
+
+class DebateAborted(Exception):
+    """连续 LLM 降级熔断（SPEC §4.9）：比赛标记 failed。"""
+
+
+@dataclass
+class DebateContext:
+    config: AppConfig
+    topic: Topic
+    agents: dict[str, AgentSpec]
+    gateway: Gateway
+    compressor: Callable[[list[Speech]], dict[str, str]]
+    format: DebateFormat
+    on_speech: Callable[[Speech], None] | None = None
+    on_event: Callable[[dict], None] | None = None
+    on_delta: Callable[[int, str, int, str, str], None] | None = None  # (seq, delta, attempt, speaker, camp)；delta="" 表示 attempt 重置信号
+    cancel_check: Callable[[], bool] | None = None
+    degradation_streak: int = 0
+    speeches: list[Speech] = field(default_factory=list)  # 全场镜像（取消/中断时仍可用）
+
+    def cancelled(self) -> bool:
+        return bool(self.cancel_check and self.cancel_check())
+
+    def check_cancel(self) -> None:
+        if self.cancelled():
+            raise DebateCancelled()
+
+    def emit(self, event: str, **data) -> None:
+        """平台事件出口（ARCH §5.3）：phase_start/timer/interrupt/judging/verdict 等。"""
+        if self.on_event:
+            self.on_event({"event": event, "data": data})
+
+    def record_degradation(self) -> None:
+        self.degradation_streak += 1
+        if self.degradation_streak >= 3:
+            raise DebateAborted(f"连续 {self.degradation_streak} 次 LLM 降级，触发熔断")

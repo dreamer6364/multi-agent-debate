@@ -1,0 +1,45 @@
+# 赛制与业务参数（字段规格以 SPEC §2.1 为准；密钥一律走 .env）
+
+procedure:
+  speed_cpm: 220            # 模拟语速：字/分钟，时长↔字数换算基数
+  phases:                   # 各环节时长（分钟），键为环节标识
+    opening: 1.0            # 主席开场
+    statement: 3.0          # 开篇立论（每人）
+    cross_examination: 1.5  # 质询一辩（每组）
+    rebuttal: 2.0           # 驳论（每人）
+    attack: 2.0             # 攻辩盘问（每组）
+    attack_summary: 1.5     # 攻辩小结（每人）
+    free_debate: 4.0        # 自由辩论（每队）
+    closing: 3.0            # 总结陈词（每人）
+  free_debate_turn_cap: 0.5 # 自由辩单次发言上限（分钟，模拟短打）
+
+model:
+  temperature:
+    debater: 0.85           # 辩手：进攻性与临场发挥
+    judge: 0.3              # 评委：打分需稳定一致
+    chair: 0.3              # 主席：纯流程播报
+    digest: 0.2             # 战局摘要：压缩任务
+  max_retries: 3
+  timeout_seconds: 60
+
+context:
+  recent_speeches: 6        # 注入最近原文条数 K
+  max_input_tokens: 4000    # 单次调用输入预算，超限按 ④→③→② 裁剪
+  digest_max_chars: 1200
+
+judges:
+  count: 3                  # 1 | 3 | 5（5 时追加通用评委）
+
+quota:
+  concurrent_debates_per_user: 1
+  daily_debates_per_user: 5
+
+conduct:
+  abuse_keywords: ["滚蛋", "蠢", "废物", "无耻"]   # 人身攻击检测词表，可扩展；避免单字误报（如"回滚"）
+  max_interrupts_per_answer: 2
+
+stream:
+  enable_delta: true       # SSE speech_delta 流式直播（v2.1）
+
+export:
+  output_dir: debate        # CLI 模式输出目录

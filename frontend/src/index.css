@@ -1,0 +1,157 @@
+/* ===== 全局设计 token 与动态效果（赛事级视觉） ===== */
+:root {
+  --pro: #2563eb;
+  --pro-soft: #eaf1fe;
+  --con: #dc2626;
+  --con-soft: #fdecec;
+  --chair: #6b7280;
+  --timekeeper: #d97706;
+  --judge: #a16207;
+  --gold: #d4af37;
+  --ink: #101828;
+  --bg: #eef1f8;
+  --header-grad: linear-gradient(120deg, #0b1530 0%, #16255c 45%, #3b1d6e 100%);
+}
+
+/* ---- 动画 ---- */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: .45; transform: scale(1.5); }
+}
+@keyframes glowRing {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, .30); }
+  50%      { box-shadow: 0 0 0 7px rgba(37, 99, 235, 0); }
+}
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to   { background-position: 200% 0; }
+}
+@keyframes vsShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(1200px 400px at 80% -10%, rgba(59, 29, 110, .12), transparent 60%),
+    radial-gradient(900px 380px at 10% -10%, rgba(37, 99, 235, .10), transparent 55%),
+    var(--bg);
+  color: var(--ink);
+  font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+}
+
+/* ---- 品牌页头 ---- */
+.app-header {
+  background: var(--header-grad);
+  background-size: 160% 160%;
+  animation: vsShift 14s ease infinite;
+  color: #fff;
+  padding: 0 28px;
+  height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  box-shadow: 0 2px 12px rgba(16, 24, 40, .25);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .5px; }
+.brand-mark {
+  width: 30px; height: 30px; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, var(--pro), var(--con));
+  font-size: 16px; font-weight: 800;
+  box-shadow: 0 0 12px rgba(212, 175, 55, .45);
+}
+.app-header nav { display: flex; gap: 6px; flex: 1; }
+.app-header nav a {
+  color: rgba(255, 255, 255, .78); text-decoration: none;
+  padding: 6px 14px; border-radius: 8px; font-size: 14px; transition: all .2s;
+}
+.app-header nav a:hover { color: #fff; background: rgba(255, 255, 255, .10); }
+.app-header nav a.active { color: #fff; background: rgba(255, 255, 255, .16); }
+.user-box { display: flex; align-items: center; gap: 10px; font-size: 13px; color: rgba(255,255,255,.85); }
+
+/* ---- 直播页 ---- */
+.vs-banner {
+  display: grid; grid-template-columns: 1fr 120px 1fr; align-items: stretch;
+  border-radius: 12px; overflow: hidden; margin-bottom: 14px;
+  box-shadow: 0 4px 18px rgba(16, 24, 40, .12);
+}
+.vs-side { padding: 14px 18px; color: #fff; }
+.vs-side .side-label { font-size: 12px; opacity: .85; letter-spacing: 2px; }
+.vs-side .side-text { font-size: 15px; font-weight: 700; margin-top: 2px; }
+.vs-side.pro { background: linear-gradient(135deg, #1e40af, var(--pro)); }
+.vs-side.con { background: linear-gradient(135deg, #991b1b, var(--con)); text-align: right; }
+.vs-divider {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #0b1530, #3b1d6e, #0b1530);
+  background-size: 220% 220%; animation: vsShift 6s ease infinite;
+  color: var(--gold); font-weight: 800; font-size: 18px; letter-spacing: 1px;
+}
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: #f43f5e; margin-bottom: 6px; animation: pulseDot 1.2s ease infinite; }
+
+.speech-card-anim { animation: fadeInUp .35s ease both; }
+.speech-card-live { animation: fadeInUp .35s ease both, glowRing 2.2s ease infinite; }
+
+.timer-wrap { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.timer-track { flex: 1; height: 8px; border-radius: 6px; background: #e2e6f0; overflow: hidden; }
+.timer-fill { height: 100%; border-radius: 6px; transition: width .4s ease, background .4s ease; }
+.timer-fill.danger { animation: pulseDot 1s ease infinite; }
+.timer-text { font-size: 12px; color: #667085; min-width: 90px; text-align: right; }
+
+/* ---- 渐变胜方横幅 ---- */
+.verdict-banner {
+  position: relative; overflow: hidden; border-radius: 12px;
+  padding: 16px 22px; color: #fff; margin-bottom: 16px;
+}
+.verdict-banner.pro { background: linear-gradient(120deg, #1e3a8a, #2563eb); }
+.verdict-banner.con { background: linear-gradient(120deg, #7f1d1d, #dc2626); }
+.verdict-banner.tie { background: linear-gradient(120deg, #92400e, #d97706); }
+.verdict-banner::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(120deg, transparent 30%, rgba(255, 255, 255, .22) 50%, transparent 70%);
+  background-size: 200% 100%; animation: shimmer 2.8s linear infinite;
+}
+.verdict-title { font-size: 18px; font-weight: 800; }
+.verdict-sub { font-size: 13px; opacity: .92; margin-top: 4px; }
+
+/* ---- 辩题卡 ---- */
+.topic-card {
+  border: 1px solid transparent;
+  border-top-width: 3px;
+  background-image: linear-gradient(#fff, #fff), linear-gradient(90deg, var(--pro), var(--con));
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  border-radius: 10px;
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+.topic-card:hover { transform: translateY(-4px); box-shadow: 0 10px 24px rgba(16, 24, 40, .14); }
+
+.gradient-btn {
+  background: linear-gradient(90deg, var(--pro), #6d28d9) !important;
+  border: none !important; box-shadow: 0 2px 10px rgba(37, 99, 235, .35);
+}
+.gradient-btn:hover { filter: brightness(1.08); }
+
+.status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #22c55e; margin-right: 6px; animation: pulseDot 1.2s ease infinite; vertical-align: middle; }
+
+/* ---- 打字机光标 ---- */
+@keyframes caretBlink { 0%, 45% { opacity: 1; } 50%, 100% { opacity: 0; } }
+.type-caret {
+  display: inline-block; width: 2px; height: 1em; margin-left: 2px;
+  background: var(--gold); vertical-align: -2px;
+  animation: caretBlink .9s steps(1) infinite;
+}
+
+/* ---- 滚动条 ---- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #c3cadb; border-radius: 6px; }
+::-webkit-scrollbar-track { background: transparent; }

@@ -1,0 +1,45 @@
+# 多 Agent 对抗辩论模拟平台 · 三容器交付（ARCH §12）
+# 用法：在 .env 中配置 OPENAI_API_KEY / OPENAI_BASE_URL / MODEL_* / JWT_SECRET 后
+#       docker compose up -d，访问 http://localhost
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root-change-me}
+      MYSQL_DATABASE: mad
+      MYSQL_USER: debate
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-debate-change-me}
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # 仅调试时暴露：ports: ["3306:3306"]
+
+  backend:
+    build: ./backend
+    environment:
+      MYSQL_URL: mysql+asyncmy://debate:${MYSQL_PASSWORD:-debate-change-me}@mysql:3306/mad?charset=utf8mb4
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL}
+      MODEL_DEBATER: ${MODEL_DEBATER:-glm-4.7}
+      MODEL_OFFICIAL: ${MODEL_OFFICIAL:-glm-4.7-air}
+      JWT_SECRET: ${JWT_SECRET:-please-change-in-production-32-chars-min}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-1440}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  mysql-data:
