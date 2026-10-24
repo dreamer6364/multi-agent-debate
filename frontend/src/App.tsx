@@ -63,7 +63,7 @@ export default function App() {
       <AntApp>
         <QueryClientProvider client={queryClient}>
           <Routes>
-            <Route path="/" element={<AppLayout><LandingPage /></AppLayout>} />
+            <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/topics" element={<AppLayout><TopicsPage /></AppLayout>} />
             <Route path="/debates" element={<AppLayout><DebatesPage /></AppLayout>} />
