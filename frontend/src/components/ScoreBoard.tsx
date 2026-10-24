@@ -42,19 +42,19 @@ export function ScoreRadar({ pro, con }: { pro: number[]; con: number[] }) {
             return `${110 + 80 * f * Math.cos(angle)},${100 + 80 * f * Math.sin(angle)}`;
           }).join(" ")}
           fill="none"
-          stroke="#d9d9d9"
+          stroke="#cdd3df"
         />
       ))}
       {axes.map((a) => (
         <g key={a.key}>
-          <line x1={110} y1={100} x2={a.x} y2={a.y} stroke="#d9d9d9" />
+          <line x1={110} y1={100} x2={a.x} y2={a.y} stroke="#cdd3df" />
           <text x={a.x + (a.x - 110) * 0.18} y={a.y + (a.y - 100) * 0.18} fontSize="11" textAnchor="middle">
             {a.label}
           </text>
         </g>
       ))}
-      <polygon points={polygonPoints(con)} fill="#dc262622" stroke="#dc2626" />
-      <polygon points={polygonPoints(pro)} fill="#2563eb22" stroke="#2563eb" />
+      <polygon points={polygonPoints(con)} fill="rgba(255,107,107,.14)" stroke="#ff6b6b" />
+      <polygon points={polygonPoints(pro)} fill="rgba(109,93,252,.14)" stroke="#6d5dfc" />
     </svg>
   );
 }

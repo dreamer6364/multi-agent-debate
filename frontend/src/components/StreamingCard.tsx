@@ -1,7 +1,7 @@
 import { CAMP_COLOR } from "./SpeechCard";
 import { roleDisplay } from "./SpeechCard";
 
-/** 打字中卡片（v2.1 speech_delta）：逐字累积 + 闪烁光标；定稿事件到达后被 SpeechCard 替换。 */
+/** 打字中卡片（v2.1 speech_delta）：逐字累积 + 强调色光标；定稿事件到达后被 SpeechCard 替换。 */
 export function StreamingCard({
   speaker,
   camp,
@@ -11,23 +11,31 @@ export function StreamingCard({
   camp: "pro" | "con" | "neutral";
   text: string;
 }) {
-  const color = CAMP_COLOR[camp] ?? CAMP_COLOR.neutral;
+  const dot = CAMP_COLOR[camp] ?? CAMP_COLOR.neutral;
+  const nameColor = camp === "pro" ? "var(--accent-deep)" : camp === "con" ? "var(--con-deep)" : "var(--ink-2)";
   return (
     <div
       data-testid="streaming-card"
-      className="speech-card-live"
+      className="speech-card-anim"
       style={{
-        borderLeft: `4px solid ${color}`,
-        background: "#fff",
-        borderRadius: 8,
-        padding: "10px 14px",
-        marginBottom: 10,
-        boxShadow: "0 1px 3px rgba(16,24,40,.08)",
+        background: "var(--neu-bg)",
+        borderRadius: 16,
+        padding: "12px 16px",
+        marginBottom: 12,
+        boxShadow: "4px 4px 8px var(--neu-dark), -4px -4px 8px var(--neu-light)",
       }}
     >
-      <strong style={{ color }}>{roleDisplay(speaker)}</strong>
-      <span style={{ color: "#98a2b3", fontSize: 12, marginLeft: 8 }}>正在发言…</span>
-      <div style={{ whiteSpace: "pre-wrap", marginTop: 4 }}>
+      <strong style={{ color: nameColor }}>
+        <span
+          style={{
+            display: "inline-block", width: 8, height: 8, borderRadius: "50%",
+            background: dot, marginRight: 8, verticalAlign: "middle",
+          }}
+        />
+        {roleDisplay(speaker)}
+      </strong>
+      <span className="speech-meta">正在发言…</span>
+      <div style={{ whiteSpace: "pre-wrap", marginTop: 4, color: "var(--ink)" }}>
         {text}
         <span className="type-caret" />
       </div>

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Alert, Button, Space, Tag } from "antd";
+import { Button, Space, Tag } from "antd";
 import { useEffect, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { getDebate, stopDebate } from "../api/client";
@@ -74,13 +74,13 @@ export default function ArenaPage() {
   if (isError && (error as { response?: { status?: number } })?.response?.status === 404) {
     return (
       <div style={{ padding: 24, maxWidth: 960, margin: "0 auto" }}>
-        <Alert
-          type="error"
-          showIcon
-          message="比赛不存在或不可见"
-          description="它可能属于其他用户，或已被删除。"
-          action={<Button href="/debates">返回归档</Button>}
-        />
+        <div className="neu-raised" style={{ padding: 24 }}>
+          <div style={{ color: "var(--con-deep)", fontWeight: 700 }}>比赛不存在或不可见</div>
+          <div style={{ color: "var(--ink-2)", fontSize: 14, margin: "6px 0 14px" }}>
+            它可能属于其他用户，或已被删除。
+          </div>
+          <Button href="/debates">返回归档</Button>
+        </div>
       </div>
     );
   }
@@ -93,8 +93,6 @@ export default function ArenaPage() {
     () => speeches.filter((s) => s.phase === phase && s.camp !== "neutral").reduce((acc, s) => acc + (s.word_count ?? 0), 0),
     [speeches, phase],
   );
-  const lastSeq = speeches.length ? speeches[speeches.length - 1].seq : 0;
-
   return (
     <div style={{ padding: 24, maxWidth: 960, margin: "0 auto" }}>
       <div style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -102,21 +100,21 @@ export default function ArenaPage() {
         <Space>
           <Tag>{STATUS_CN[status ?? ""] ?? "…"}</Tag>
           {running && (
-            <Tag color={connected ? "green" : "orange"}>
+            <Tag style={{ color: connected ? "var(--accent-deep)" : "var(--con-deep)" }}>
               {connected && <span className="status-dot" />}
               {connected ? "直播中" : "轮询中"}
             </Tag>
           )}
           {running && (
-            <Button danger size="small" onClick={() => void stopDebate(debateId!)}>终止比赛</Button>
+            <button className="neu-btn" style={{ padding: "4px 12px", fontSize: 13, color: "var(--con-deep)" }} onClick={() => void stopDebate(debateId!)}>终止比赛</button>
           )}
           {status === "finished" && (
             <>
-              <Button href={`/api/debates/${debateId}/export?format=md`} target="_blank">导出实录 (MD)</Button>
-              <Button href={`/api/debates/${debateId}/export?format=html`} target="_blank">导出报告 (HTML)</Button>
+              <a className="neu-btn" style={{ padding: "4px 12px", fontSize: 13, textDecoration: "none", color: "var(--ink)" }} href={`/api/debates/${debateId}/export?format=md`} target="_blank">导出实录 (MD)</a>
+              <a className="neu-btn" style={{ padding: "4px 12px", fontSize: 13, textDecoration: "none", color: "var(--ink)" }} href={`/api/debates/${debateId}/export?format=html`} target="_blank">导出报告 (HTML)</a>
             </>
           )}
-          <Button href="/debates">归档</Button>
+          <a className="neu-btn" style={{ padding: "4px 12px", fontSize: 13, textDecoration: "none", color: "var(--ink)" }} href="/debates">归档</a>
         </Space>
       </div>
 
@@ -142,19 +140,12 @@ export default function ArenaPage() {
         <TimerBar consumed={consumed} budget={budgetWords} />
       )}
       {timer && running && (
-        <Alert
-          style={{ marginBottom: 12 }}
-          type={timer.type === "time_up" ? "error" : "warning"}
-          showIcon
-          message={timer.type === "time_up" ? "时间到，请停止发言" : "还剩 30 秒"}
-        />
+        <div className={`neu-chip ${timer.type === "time_up" ? "danger" : "info"}`}>
+          {timer.type === "time_up" ? "时间到，请停止发言" : "还剩 30 秒"}
+        </div>
       )}
-      {judging && running && (
-        <Alert style={{ marginBottom: 12 }} type="info" showIcon message="评委合议与点评中……" />
-      )}
-      {storeError && status === "failed" && (
-        <Alert style={{ marginBottom: 12 }} type="error" showIcon message={storeError} />
-      )}
+      {judging && running && <div className="neu-chip info">评委合议与点评中……</div>}
+      {storeError && status === "failed" && <div className="neu-chip danger">{storeError}</div>}
       {verdict && <VerdictBanner verdict={verdict} />}
       {terminal && status === "finished" && detail?.usage && (
         <p style={{ color: "#888" }}>
@@ -163,7 +154,7 @@ export default function ArenaPage() {
       )}
 
       {speeches.map((speech) => (
-        <SpeechCard key={speech.seq} speech={speech} live={running && speech.seq === lastSeq} />
+        <SpeechCard key={speech.seq} speech={speech} />
       ))}
       {running && streaming && (
         <StreamingCard speaker={streaming.speaker} camp={streaming.camp} text={streaming.text} />

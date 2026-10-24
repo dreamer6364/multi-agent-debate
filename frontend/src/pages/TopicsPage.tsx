@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { App as AntApp, Button, Card, Form, Input, Modal, Popconfirm, Select, Tag } from "antd";
+import { App as AntApp, Form, Input, Modal, Popconfirm, Select, Tag } from "antd";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createDebate, createTopic, deleteTopic, listTopics } from "../api/client";
@@ -11,25 +11,34 @@ function TopicCard({ topic, onLaunch, onDelete }: {
   onDelete: (id: number) => void;
 }) {
   return (
-    <Card
-      title={topic.title}
-      extra={
-        <>
-          {topic.is_builtin && <Tag color="gold">内置</Tag>}
-          {!topic.is_builtin && (
-            <Popconfirm title="确认删除该辩题？" onConfirm={() => onDelete(topic.id)}>
-              <Button size="small" danger>删除</Button>
-            </Popconfirm>
-          )}
-        </>
-      }
-      className="topic-card"
-      style={{ width: 360 }}
+    <div
+      className="neu-raised"
+      style={{ width: 360, padding: "18px 20px", display: "flex", flexDirection: "column", gap: 8 }}
     >
-      <p><Tag color="blue">正方</Tag>{topic.pro_stance}</p>
-      <p><Tag color="red">反方</Tag>{topic.con_stance}</p>
-      <Button type="primary" size="small" className="gradient-btn" onClick={() => onLaunch(topic)}>发起比赛</Button>
-    </Card>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--ink)" }}>{topic.title}</h3>
+        {topic.is_builtin ? <Tag color="purple">内置</Tag> : (
+          <Popconfirm title="确认删除该辩题？" onConfirm={() => onDelete(topic.id)}>
+            <button className="neu-btn" style={{ padding: "3px 10px", fontSize: 12, color: "var(--con-deep)" }}>删除</button>
+          </Popconfirm>
+        )}
+      </div>
+      <p style={{ margin: 0, fontSize: 13 }}>
+        <Tag style={{ color: "var(--accent-deep)", background: "rgba(109,93,252,.12)", border: "none" }}>正方</Tag>
+        <span style={{ color: "var(--ink-2)" }}>{topic.pro_stance}</span>
+      </p>
+      <p style={{ margin: 0, fontSize: 13 }}>
+        <Tag style={{ color: "var(--con-deep)", background: "rgba(255,107,107,.12)", border: "none" }}>反方</Tag>
+        <span style={{ color: "var(--ink-2)" }}>{topic.con_stance}</span>
+      </p>
+      <button
+        className="neu-btn-accent"
+        style={{ padding: "8px 0", fontSize: 14, fontWeight: 600, alignSelf: "flex-start", minWidth: 120 }}
+        onClick={() => onLaunch(topic)}
+      >
+        发起比赛
+      </button>
+    </div>
   );
 }
 
@@ -82,10 +91,10 @@ export default function TopicsPage() {
   return (
     <div style={{ padding: 24 }}>
       <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between" }}>
-        <h2>辩题库</h2>
+        <h2 style={{ color: "var(--ink)" }}>辩题库</h2>
         <div>
-          <Button style={{ marginRight: 8 }} onClick={() => setCustomOpen(true)}>新建辩题</Button>
-          <Button href="/debates">历史归档</Button>
+          <button className="neu-btn" style={{ padding: "7px 16px", marginRight: 8 }} onClick={() => setCustomOpen(true)}>新建辩题</button>
+          <button className="neu-btn" style={{ padding: "7px 16px" }} onClick={() => { window.location.href = "/debates"; }}>历史归档</button>
         </div>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
@@ -101,7 +110,7 @@ export default function TopicsPage() {
         onCancel={() => setLaunchTarget(null)}
         onOk={() => launchForm.submit()}
         okText="开始"
-        okButtonProps={{ className: "gradient-btn" }}
+        okButtonProps={{ className: "neu-btn-accent", style: { border: "none" } }}
       >
         <Form form={launchForm} layout="vertical" onFinish={launch} initialValues={{ format: "full", judges: 3 }}>
           <Form.Item name="format" label="赛制" rules={[{ required: true }]}>

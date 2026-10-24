@@ -1,9 +1,8 @@
-import { Button } from "antd";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink, useNavigate } from "react-router-dom";
 import { logout, me } from "../api/client";
 
-/** 品牌页头 + 内容容器（全站统一导航、当前用户、退出）。 */
+/** 品牌页头（凸起面板 + 凹陷激活态导航）+ 内容容器。 */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -17,14 +16,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           多 Agent 对抗辩论模拟
         </div>
         <nav>
-          <NavLink to="/topics" className={({ isActive }) => (isActive ? "active" : "")}>辩题库</NavLink>
-          <NavLink to="/debates" className={({ isActive }) => (isActive ? "active" : "")}>历史归档</NavLink>
+          <NavLink to="/topics" className={({ isActive }) => (isActive ? "nav-chip active" : "nav-chip")}>辩题库</NavLink>
+          <NavLink to="/debates" className={({ isActive }) => (isActive ? "nav-chip active" : "nav-chip")}>历史归档</NavLink>
         </nav>
         <div className="user-box">
           <span>{user?.username ?? "…"}</span>
-          <Button
-            size="small"
-            ghost
+          <button
+            className="neu-btn"
+            style={{ padding: "5px 14px", fontSize: 13 }}
             onClick={async () => {
               await logout();
               queryClient.clear();
@@ -32,7 +31,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             }}
           >
             退出
-          </Button>
+          </button>
         </div>
       </header>
       {children}

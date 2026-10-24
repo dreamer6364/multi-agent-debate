@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Button, Table, Tag } from "antd";
+import { Table, Tag } from "antd";
 import { useNavigate } from "react-router-dom";
 import { getDebates } from "../api/client";
 import type { DebateStatus } from "../api/types";
@@ -30,8 +30,8 @@ export default function DebatesPage() {
   return (
     <div style={{ padding: 24 }}>
       <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between" }}>
-        <h2>历史归档</h2>
-        <Button href="/topics">返回辩题库</Button>
+        <h2 style={{ color: "var(--ink)" }}>历史归档</h2>
+        <button className="neu-btn" style={{ padding: "7px 16px" }} onClick={() => { window.location.href = "/topics"; }}>返回辩题库</button>
       </div>
       <Table
         rowKey="id"

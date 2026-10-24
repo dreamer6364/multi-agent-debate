@@ -1,11 +1,16 @@
 import { Tag } from "antd";
 import type { Camp, LiveSpeech } from "../api/types";
 
-// 角色配色 token（SPEC §8 / CONSTRAINTS F6 同源）：正方蓝、反方红、主席灰、计时黄、评委金
+/** 阵营色彩（Neumorphism 柔和口径）：深色变体用于文字（对比度达标），原色仅作色点。 */
 export const CAMP_COLOR: Record<Camp, string> = {
-  pro: "#2563eb",
-  con: "#dc2626",
-  neutral: "#6b7280",
+  pro: "#6d5dfc",
+  con: "#ff6b6b",
+  neutral: "#9aa2b1",
+};
+const CAMP_TEXT: Record<Camp, string> = {
+  pro: "#4a3db8",
+  con: "#c23a3a",
+  neutral: "#566070",
 };
 
 const CN_NUM: Record<string, string> = { "1": "一", "2": "二", "3": "三", "4": "四" };
@@ -21,25 +26,40 @@ export function roleDisplay(role: string): string {
   return JUDGE_CN[role] ?? { chair: "主席", timekeeper: "计时员" }[role] ?? role;
 }
 
-/** 发言卡片：正文纯文本渲染（CONSTRAINTS F4：禁用 dangerouslySetInnerHTML，防 XSS）。 */
-export function SpeechCard({ speech, live = false }: { speech: LiveSpeech; live?: boolean }) {
-  const color = CAMP_COLOR[speech.camp] ?? CAMP_COLOR.neutral;
+function speakerColor(role: string, camp: Camp): string {
+  if (role.startsWith("judge-")) return "var(--judge-deep)";
+  if (role === "timekeeper") return "var(--tk-deep)";
+  if (role === "chair") return "var(--ink-2)";
+  return CAMP_TEXT[camp];
+}
+
+/** 发言卡片（Neumorphism 凸起）：正文纯文本渲染（CONSTRAINTS F4：禁用 dangerouslySetInnerHTML，防 XSS）。 */
+export function SpeechCard({ speech }: { speech: LiveSpeech }) {
+  const camp = speech.camp;
+  const dot = CAMP_COLOR[camp] ?? CAMP_COLOR.neutral;
   return (
     <div
       data-testid="speech-card"
-      className={`speech-card-anim${live ? " speech-card-live" : ""}`}
+      className="speech-card-anim"
       style={{
-        borderLeft: `4px solid ${color}`,
-        background: "#fff",
-        borderRadius: 8,
-        padding: "10px 14px",
-        marginBottom: 10,
-        boxShadow: "0 1px 3px rgba(16,24,40,.08)",
+        background: "var(--neu-bg)",
+        borderRadius: 16,
+        padding: "12px 16px",
+        marginBottom: 12,
+        boxShadow: "4px 4px 8px var(--neu-dark), -4px -4px 8px var(--neu-light)",
       }}
     >
-      <strong style={{ color }}>{roleDisplay(speech.speaker)}</strong>
-      <div style={{ whiteSpace: "pre-wrap", marginTop: 4 }}>{speech.text}</div>
-      {speech.interrupted && <Tag color="red">已被打断</Tag>}
+      <strong style={{ color: speakerColor(speech.speaker, camp) }}>
+        <span
+          style={{
+            display: "inline-block", width: 8, height: 8, borderRadius: "50%",
+            background: dot, marginRight: 8, verticalAlign: "middle",
+          }}
+        />
+        {roleDisplay(speech.speaker)}
+      </strong>
+      <div style={{ whiteSpace: "pre-wrap", marginTop: 4, color: "var(--ink)" }}>{speech.text}</div>
+      {speech.interrupted && <Tag color="volcano">已被打断</Tag>}
       {speech.side_notes.map((note) => (
         <Tag key={note} color={note.startsWith("违规") ? "volcano" : "default"}>
           {note}
