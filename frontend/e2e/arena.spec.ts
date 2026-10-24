@@ -18,10 +18,10 @@ test("E2E-WEB-01 注册到归档导出的全链路", async ({ page }) => {
   await expect(page.getByText("内置").first()).toBeVisible(); // 辩题库已加载
 
   // 2) 发起精简赛
-  await page.getByRole("button", { name: "发起比赛" }).first().click();
+  await page.getByRole("button", { name: "开赛" }).first().click();
   const modal = page.getByRole("dialog");
   await modal.locator(".ant-select").first().click();
-  await page.getByText("精简赛制（5 环节）").click();
+  await page.getByText(/精简赛制（5 环节/).click();
   await modal.getByRole("button", { name: /开\s*始/ }).click();
   await expect(page).toHaveURL(/\/debates\/\d+/, { timeout: 15_000 });
 

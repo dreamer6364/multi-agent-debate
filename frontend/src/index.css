@@ -392,3 +392,40 @@ a.neu-btn-accent.hero-btn { color: #fff; }
 .tint-stream { color: #1f7a6c; }
 .tint-judge { color: var(--judge-deep); }
 .tint-archive { color: var(--con-deep); }
+
+/* ---- 工作台：概览面板 + 紧凑行列表（登录后专属信息组织） ---- */
+.stat-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 20px; }
+@media (min-width: 900px) { .stat-row { grid-template-columns: repeat(4, 1fr); } }
+.stat-card { padding: 16px 18px; transition: box-shadow 0.3s ease-in-out; }
+.stat-card:hover { box-shadow: 4px 4px 8px var(--neu-dark), -4px -4px 8px var(--neu-light); }
+.stat-label { font-size: 12px; color: var(--ink-2); letter-spacing: 1px; }
+.stat-value { font-size: 26px; font-weight: 700; color: var(--ink); margin-top: 6px; line-height: 1.1; }
+.stat-value .stat-unit { font-size: 12px; font-weight: 400; color: var(--ink-3); margin-left: 4px; }
+.stat-hint { font-size: 12px; color: var(--ink-3); margin-top: 6px; }
+.stat-accent { color: var(--accent-deep); }
+.stat-warn { color: var(--con-deep); }
+
+/* 紧凑辩题行：列表范式（与登录前的介绍卡区分） */
+.topic-list { display: flex; flex-direction: column; gap: 12px; }
+.topic-row {
+  display: grid; grid-template-columns: 44px 1fr auto; gap: 14px; align-items: center;
+  padding: 14px 18px; border-radius: 16px; background: var(--neu-bg);
+  box-shadow: 4px 4px 8px var(--neu-dark), -4px -4px 8px var(--neu-light);
+  transition: box-shadow 0.3s ease-in-out;
+}
+.topic-row:hover { box-shadow: 6px 6px 12px var(--neu-dark), -6px -6px 12px var(--neu-light); }
+.topic-row-main { min-width: 0; }
+.topic-row-title { font-size: 15px; font-weight: 600; color: var(--ink); }
+.topic-row-title .src-badge {
+  font-size: 11px; font-weight: 500; color: var(--accent-deep);
+  background: rgba(109, 93, 252, 0.10); border-radius: 6px; padding: 2px 8px; margin-left: 8px; vertical-align: 1px;
+}
+.topic-row-stance { font-size: 12px; color: var(--ink-2); margin-top: 4px; line-height: 1.6; }
+.topic-row-stance b.pro { color: var(--accent-deep); font-weight: 600; }
+.topic-row-stance b.con { color: var(--con-deep); font-weight: 600; }
+.topic-glyph {
+  width: 44px; height: 44px; border-radius: 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--neu-bg); color: var(--accent); font-size: 15px; font-weight: 700;
+  box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light);
+}
