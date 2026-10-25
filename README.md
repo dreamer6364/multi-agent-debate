@@ -13,7 +13,17 @@
 | 前端 | React 18 + Vite + TypeScript + Ant Design 5 · zustand · TanStack Query |
 | 交付 | Docker Compose（backend + mysql + nginx） |
 
-## 快速开始（开发模式）
+## 一键启动（推荐）
+
+```bat
+start.bat          真模型模式：后端 8000 + 前端 5173（读 backend\.env 的 GLM 配置），自动打开浏览器
+start.bat demo     演示模式：FakeLLM 剧本回放（零 token），后端 8010 + 前端 5174
+start.bat stop     停止全部服务并清理端口
+```
+
+脚本会自动：检查 MySQL 服务 → 清理端口残留 → 启动后端并等待健康检查 → 启动前端（首次自动装依赖）→ 打开浏览器。两个服务窗口保持打开即可；关闭它们或运行 `start.bat stop` 即停止。
+
+## 快速开始（手动开发模式）
 
 ```bash
 # 1) 后端
