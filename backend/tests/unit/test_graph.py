@@ -86,5 +86,5 @@ def test_consecutive_degradations_abort(assets_root, lite_config):
     )
     assert result.status == "failed"  # FT-LLM-02：连续 3 次降级熔断
     placeholders = [s for s in result.transcript if s.text == "[系统] 该辩手超时未发言"]
-    assert len(placeholders) == 2  # 第 3 次降级在落占位前即熔断（SPEC §4.9）
+    assert len(placeholders) == 4  # v1.4.2：熔断阈值 5，前 4 次落占位（带占位跑完优于中止）
     assert result.error and "熔断" in result.error

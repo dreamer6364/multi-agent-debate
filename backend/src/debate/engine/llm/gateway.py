@@ -87,7 +87,7 @@ class Gateway:
         """限流（429/RateLimit*）用长退避扛过按分钟计的限窗；其余指数退避。"""
         name = type(exc).__name__
         if "RateLimit" in name or "429" in str(exc):
-            return 45.0
+            return 90.0  # 免费档限窗较长的惩罚期：90s 退避
         return float(min(2**attempt, 8))
 
     def stream(

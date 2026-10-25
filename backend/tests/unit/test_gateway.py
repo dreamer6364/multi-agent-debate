@@ -107,7 +107,7 @@ def test_gateway_backs_off_long_on_rate_limit():
     result = gateway.complete([{"role": "user", "content": "x"}],
                               tier="debater", temperature=0.5, max_tokens=64)
     assert result.text == "恢复"
-    assert waits == [45.0, 45.0]  # 限流退避 45s（v1.4：扛过免费档分钟级限窗）
+    assert waits == [90.0, 90.0]  # 限流退避 90s（v1.4.2：扛过免费档惩罚期）
 
 
 def test_gateway_short_backoff_on_other_errors():

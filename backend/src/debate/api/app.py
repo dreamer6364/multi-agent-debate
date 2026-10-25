@@ -37,7 +37,7 @@ def _default_gateway_factory(config: AppConfig, fmt: DebateFormat) -> Gateway:
         model_debater=os.environ.get("MODEL_DEBATER", ""),
         model_official=os.environ.get("MODEL_OFFICIAL", ""),
         max_retries=config.model.max_retries,
-        min_interval=config.model.min_call_interval,
+        min_interval=float(os.environ.get("MIN_CALL_INTERVAL", config.model.min_call_interval)),
         extra_body=extra_body_from_env(),
     )
 

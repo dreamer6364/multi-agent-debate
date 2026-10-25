@@ -53,5 +53,6 @@ class DebateContext:
 
     def record_degradation(self) -> None:
         self.degradation_streak += 1
-        if self.degradation_streak >= 3:
+        limit = getattr(self.config.model, "degradation_limit", 3)
+        if self.degradation_streak >= limit:
             raise DebateAborted(f"连续 {self.degradation_streak} 次 LLM 降级，触发熔断")
