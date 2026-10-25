@@ -33,3 +33,14 @@ def test_hard_evasion_rules():
     assert is_hard_evasion("   ", ["之前"])  # 空回答
     assert is_hard_evasion("同一条回答", ["另一条", "同一条回答"])  # 逐字重复
     assert not is_hard_evasion("新的正面回应内容", ["旧的"])  # 正常回应
+
+
+def test_is_repetitive_v15():
+    """复读检测（v1.5）：≥15 字连续相同片段判定复读。"""
+    from debate.engine.sim.conduct import is_repetitive
+    a = "正如弗洛姆在《爱的艺术》中指出，爱是需要学习的能力，包含关心、责任、尊重与了解四个要素。"
+    b = "我方再次强调，爱是需要学习的能力，包含关心、责任、尊重与了解四个要素，因此主动去爱更高尚。"
+    c = "依恋理论的安全基地效应说明被爱体验的另一面。"
+    assert is_repetitive(b, [a])
+    assert not is_repetitive(c, [a])
+    assert not is_repetitive("短", [a])

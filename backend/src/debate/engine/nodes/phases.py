@@ -14,11 +14,41 @@ from ..schema import Camp, Speech
 from ..sim.conduct import (
     has_interrupt_marker,
     is_hard_evasion,
+    is_repetitive,
     scan,
     strip_forbidden_format,
     strip_interrupt_marker,
     strip_stage_tags,
 )
+import re as _re
+
+# v1.5 辩论纪律指令（治用户报告的五大问题：流程/论据/逻辑/复读）
+_NO_INTERRUPT_RULE = (
+    "【本环节无打断权】禁止使用[打断]标记；禁止模拟抢话或以'请正面回答'的质询口吻施压——"
+    "那属于质询环节的动作。请完整、按顺序陈述本方观点。"
+)
+_EVIDENCE_RULES = (
+    "【证据使用规范】①引用前检验证据与辩题的适用域是否匹配，"
+    "禁止跨域硬套（如把商业/技术理论直接嫁接到情感、人际议题）；"
+    "②描述性研究结论（如认知偏差）只用于揭示人的局限，不得直接推出价值选择结论；"
+    "③无样本与方法的网络调查不得作为核心论据；④同一来源全场至多引用两次，优先轮换论据。"
+)
+
+def _book_names(cards) -> list[str]:
+    """从证据卡来源提取书名《…》（引用记账用）。"""
+    names = []
+    for c in cards:
+        for m in _re.findall(r"《[^》]+》", c.source):
+            names.append(m)
+    return names
+
+def _usage_line(ctx, camp_cards) -> str:
+    """引用纪律注入：本场已被引用 ≥2 次的来源提示勿再用。"""
+    over = [name for name, n in ctx.evidence_usage.items() if n >= 2]
+    if not over:
+        return ""
+    return f"【引用纪律】以下来源本场已被引用≥2次，请勿再用：{'、'.join(dict.fromkeys(over))}。"
+
 from ..sim.digest import Digest, extract_excerpts, merge_digest, render_digest
 from ..sim.interrupt import InterruptLedger, apply_interrupt_to_answer, parse_interrupt
 from ..sim.timer import (
@@ -56,20 +86,24 @@ ATTACK_GROUPS = [
     ("pro-3", ["con-1", "con-2", "con-4"]),
     ("con-3", ["pro-1", "pro-2", "pro-4"]),
 ]
+# v1.5：二三辩为自由辩主力先手，一四辩补位（贴近真实分工：四辩保存体力结辩，一辩已完成立论）
 FREE_ROTATION = {
-    Camp.PRO: ["pro-1", "pro-2", "pro-3", "pro-4"],
-    Camp.CON: ["con-1", "con-2", "con-3", "con-4"],
+    Camp.PRO: ["pro-2", "pro-3", "pro-1", "pro-4"],
+    Camp.CON: ["con-2", "con-3", "con-1", "con-4"],
 }
 
 
 def _mono_instruction(key: str) -> str:
     if key == "statement":
-        return "你正在开篇立论：下定义（争夺定义权）、立判准（本题胜负标准）、铺 2~3 个论点（论点→论据→论证完整展开）。"
+        return ("你正在开篇立论：下定义（争夺定义权）、立判准（本题胜负标准）、铺 2~3 个论点（论点→论据→论证完整展开）。"
+                "概念边界必须清晰：明确'我方主张 X ≠ Y'，把己方立场与易被混淆的极端形态区分开。")
     if key == "rebuttal":
-        return "你正在驳论：按“对方说 X → 但事实上/逻辑上/价值上……”逐条拆解对方一辩立论，并补强己方薄弱处。"
+        return ("你正在驳论：按“对方说 X → 但事实上/逻辑上/价值上……”逐条拆解对方一辩立论，并补强己方薄弱处。"
+                "每次拆解必须给出中间论证链条（A 之所以推出问题，是因为…），禁止标签化跳跃（如直接给对方贴'滑坡''赌博'标签而不展开机理）。")
     if key == "attack_summary":
         return "你正在做攻辩小结：向评委归纳本方盘问的得分点，逐条点名对方暴露的问题。"
-    return "你正在总结陈词：复盘交锋→归纳对方谬误（引用原话举证）→重申己方框架→价值升华。不得引入新论点。"
+    return ("你正在总结陈词：复盘交锋→归纳对方谬误（引用原话举证）→重申己方框架→价值升华。不得引入新论点。"
+            "归纳谬误时先复述对方原话，再指认该谬误属于哪一方——归属方（正/反）必须与实际发言方一致，严禁写反。")
 
 
 def _compress_half(label: str, text: str) -> str:
@@ -112,13 +146,17 @@ def _ask(
     seq = len(recent) + 1
     if cap_words <= 0:  # 防御性出口：调用方保证预算为正
         raise DebateAborted(f"{speaker} 的发言预算非正: {cap_words}")
+    camp_cards = (ctx.evidence or {}).get(spec.camp, [])
+    extra_rules = _EVIDENCE_RULES + _usage_line(ctx, camp_cards)
+    if not allow_interrupt_marker:
+        extra_rules += _NO_INTERRUPT_RULE
     messages = build_debater_messages(
         spec=spec,
         topic=ctx.topic,
         digest_text=digest_text,
         recent=recent,
-        evidence_text=render_evidence((ctx.evidence or {}).get(spec.camp, [])),
-        instruction=f"{instruction}（本次发言预算约 {cap_words} 字）",
+        evidence_text=render_evidence(camp_cards),
+        instruction=f"{instruction}\n{extra_rules}（本次发言预算约 {cap_words} 字）",
         recent_k=config.context.recent_speeches,
         max_input_tokens=config.context.max_input_tokens,
     )
@@ -170,6 +208,9 @@ def _ask(
             text = text[:cap_words]
     else:
         text, _ = truncate_to_sentence(text, cap_words)
+    for name in _book_names(camp_cards):
+        if name in text:
+            ctx.evidence_usage[name] = ctx.evidence_usage.get(name, 0) + 1
     return Speech(
         seq=seq, phase=phase, phase_name=phase_name, speaker=speaker, camp=spec.camp,
         text=text, side_notes=notes, word_count=len(text),
@@ -328,14 +369,20 @@ def make_free_node(ctx: DebateContext):
             speaker = FREE_ROTATION[camp][rotation_index[camp] % len(FREE_ROTATION[camp])]
             rotation_index[camp] += 1
             cap = min(clock.turn_cap_words, clock.pools[camp].remaining)
-            previous = [s.text for s in base + new if s.speaker == speaker and s.phase == phase]
+            previous = [sp.text for sp in base + new if sp.speaker == speaker and sp.phase == phase]
             speech = _ask(
                 ctx, speaker=speaker, phase=phase, phase_name=phase_name,
-                instruction="你正在自由辩论：短打快攻，一次只打一个点，单次发言不超过预算；必须接对方上一回合的招。",
+                instruction=("你正在自由辩论：你拥有一次完整的表达机会（≤预算字数），对方 likewise——"
+                             "禁止在发言中模拟打断或抢话。一次只打一个点；直接给出你的反驳与论据，"
+                             "不要使用'请正面回答'等质询口吻；禁止重复本方已陈述过的论据原句（评委视为复读），"
+                             "每轮要么深挖对方上一发言的具体漏洞，要么推进新角度。"),
                 cap_words=cap, hard_cut=True, recent=base + new, digest_text=digest_text,
             )
             if is_hard_evasion(speech.text, previous):
                 speech.side_notes.append("回避追问")
+            team_texts = [sp.text for sp in base + new if sp.camp == camp and sp.phase == phase]
+            if is_repetitive(speech.text, team_texts):
+                speech.side_notes.append("复读论据")
             pool_notes = clock.consume(camp, speech.word_count)
             speech.side_notes.extend(pool_notes)
             _timer_events(ctx, speaker, pool_notes)

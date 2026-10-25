@@ -147,3 +147,54 @@ def test_websearch_merges_into_runner_evidence(monkeypatch, assets_root):
                         gateway=gw, compressor=fake_columns, assets_root=assets_root)
     assert result.status == "finished"
     assert len(captured) == 2  # 正反双方各一次检索
+
+
+# ===== v1.5：域过滤与引用纪律 =====
+
+def test_detect_topic_domain():
+    from debate.engine.rag.retriever import detect_topic_domain
+    assert detect_topic_domain("选择爱你的人还是你爱你的人") == "情感"
+    assert detect_topic_domain("人工智能时代人类应该更依赖技术") == "科技"
+    assert detect_topic_domain("成大事者不拘小节") == "通用"
+
+
+def test_domain_filter_blocks_cross_domain_cards(assets_root):
+    """跨域硬套治理：情感辩题不得命中商业/科技卡。"""
+    from debate.engine.rag.retriever import EvidenceRetriever, detect_topic_domain
+
+    r = EvidenceRetriever.from_dir(assets_root / "knowledge")
+    query = "选择爱你的人还是你爱你的人 选择你爱的人"
+    domain = detect_topic_domain(query)
+    hits = r.search(query, top_k=3, topic_domain=domain)
+    assert hits, "情感辩题应命中情感域卡"
+    assert all(c.domain in ("情感", "心理", "通用") for c in hits), [c.domain for c in hits]
+    titles = " ".join(c.title for c in hits)
+    assert "创新" not in titles and "精益创业" not in titles  # 商业书不再被套
+
+
+def test_low_score_filtered_out():
+    from debate.engine.rag.retriever import EvidenceRetriever
+    r = EvidenceRetriever.from_dir(__import__("pathlib").Path("knowledge"))
+    hits = r.search("量子纠缠与黑洞蒸发", top_k=3)  # 与所有卡都弱相关
+    assert hits == []  # 低分阈值：宁缺毋滥
+
+
+def test_evidence_usage_accounting_in_instruction(assets_root):
+    """引用记账：书被引 ≥2 次后，后续辩手指令出现禁用提示。"""
+    from debate.engine.nodes.phases import _book_names, _usage_line
+    from debate.engine.rag.retriever import EvidenceRetriever
+    from debate.engine.runtime import DebateContext
+    from debate.core.config import load_config
+
+    config = load_config(assets_root / "config.yaml")
+    ctx = DebateContext.__new__(DebateContext)
+    ctx.evidence_usage = {}
+    r = EvidenceRetriever.from_dir(assets_root / "knowledge")
+    cards = r.search("爱 亲密关系", top_k=3)
+    names = _book_names(cards)
+    assert names, "应能提取书名"
+    for _ in range(2):
+        for n in names:
+            ctx.evidence_usage[n] = ctx.evidence_usage.get(n, 0) + 1
+    line = _usage_line(ctx, cards)
+    assert "请勿再用" in line and names[0] in line

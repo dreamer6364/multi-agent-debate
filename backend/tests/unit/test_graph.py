@@ -32,7 +32,7 @@ def test_lite_full_run(assets_root, backend_root, lite_config):
     assert phases == [2, 4, 7, 8, 9, 10]  # lite 仅五环节 + 宣判（UT-GRF-02）
     assert [s.speaker for s in result.transcript if s.phase == 2] == ["pro-1", "con-1"]
     assert [s.speaker for s in result.transcript if s.phase == 4] == ["con-2", "pro-2"]
-    assert [s.speaker for s in result.transcript if s.phase == 7] == ["pro-1", "con-1", "pro-2", "con-2"]
+    assert [s.speaker for s in result.transcript if s.phase == 7] == ["pro-2", "con-2", "pro-3", "con-3"]  # v1.5：二三辩先手轮转
     assert [s.speaker for s in result.transcript if s.phase == 8] == ["con-4", "pro-4"]
     # 自由辩双池均耗尽（时间用尽旁注出现，UT-TIMER 联动）
     assert any("时间用尽" in n for s in result.transcript if s.phase == 7 for n in s.side_notes)

@@ -19,6 +19,7 @@ class EvidenceCard(BaseModel):
     source: str
     source_type: str
     text: str
+    domain: str = "通用"  # 证据适用域（科技/社会/商业/心理/情感…；检索时与辩题域匹配加权）
 
 
 class CorpusError(RuntimeError):
@@ -36,13 +37,15 @@ def parse_corpus(content: str, origin: str = "knowledge") -> list[EvidenceCard]:
         if not first.startswith("证据卡："):
             continue  # 允许文件头部自由说明文字
         title = first[len("证据卡："):].strip()
-        source, source_type = "", ""
+        source, source_type, domain = "", "", ""
         body_start = len(lines)
         for i, line in enumerate(lines[1:], start=1):
             if line.startswith("- 来源："):
                 source = line[len("- 来源："):].strip()
             elif line.startswith("- 类型："):
                 source_type = line[len("- 类型："):].strip()
+            elif line.startswith("- 域："):
+                domain = line[len("- 域："):].strip()
             else:
                 body_start = i
                 break
@@ -52,6 +55,7 @@ def parse_corpus(content: str, origin: str = "knowledge") -> list[EvidenceCard]:
         cards.append(EvidenceCard(
             card_id=f"ev-{index}", title=title, source=source,
             source_type=source_type or "书籍", text=text,
+            domain=domain or "通用",
         ))
     return cards
 

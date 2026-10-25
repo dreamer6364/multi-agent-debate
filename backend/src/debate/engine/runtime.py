@@ -37,6 +37,7 @@ class DebateContext:
     on_delta: Callable[[int, str, int, str, str], None] | None = None  # (seq, delta, attempt, speaker, camp)；delta="" 表示 attempt 重置信号
     cancel_check: Callable[[], bool] | None = None
     degradation_streak: int = 0
+    evidence_usage: dict[str, int] = field(default_factory=dict)  # 书名→全场被引用次数（v1.5 引用纪律）
     speeches: list[Speech] = field(default_factory=list)  # 全场镜像（取消/中断时仍可用）
 
     def cancelled(self) -> bool:

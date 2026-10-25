@@ -87,6 +87,22 @@ def strip_forbidden_format(text: str) -> tuple[str, bool]:
     return "\n".join(out_lines).strip(), changed
 
 
+def is_repetitive(text: str, prior_texts: list[str], min_overlap: int = 15) -> bool:
+    """复读检测（v1.5）：与此前任一发言存在 ≥min_overlap 字的连续相同片段。
+
+    治"整场复读同一金句"：非整段重复（那是回避），而是大段论据复述。
+    实现：text 的定长子串集合 × prior 滑窗匹配（发言 ≤400 字，规模安全）。
+    """
+    if len(text) < min_overlap:
+        return False
+    subs = {text[i : i + min_overlap] for i in range(len(text) - min_overlap + 1)}
+    for prior in prior_texts:
+        for j in range(len(prior) - min_overlap + 1):
+            if prior[j : j + min_overlap] in subs:
+                return True
+    return False
+
+
 def is_hard_evasion(answer_text: str, previous_answers: list[str]) -> bool:
     """L1 硬逃避：空回答或与此前任一回答逐字重复。"""
     text = answer_text.strip()
