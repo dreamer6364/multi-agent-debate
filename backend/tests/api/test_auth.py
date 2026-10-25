@@ -52,5 +52,5 @@ async def test_me_returns_quota(env):
     assert response.status_code == 200
     body = response.json()
     assert body["username"] == "alice"
-    assert body["quota"] == {"daily_used": 0, "daily_limit": 5}
+    assert body["quota"] == {"concurrent_limit": 1, "daily_limit": None}  # v1.3：无每日配额
     await client.aclose()

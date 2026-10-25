@@ -112,23 +112,15 @@ async def test_concurrent_quota(env, backend_root, tmp_path):
         await client.aclose()
 
 
-async def test_daily_quota_and_rollover(env, backend_root, tmp_path, tomorrow_fn):
-    app = make_app(backend_root, tmp_path)
-    async with app.router.lifespan_context(app):
-        client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
-        await register_and_login(client, "alice")
-        for _ in range(5):
-            debate_id = (await client.post("/api/debates", json={
-                "topic_id": 1, "format": "lite"})).json()["id"]
-            await wait_status(client, debate_id, "finished")
-        sixth = await client.post("/api/debates", json={"topic_id": 1, "format": "lite"})
-        assert sixth.status_code == 429 and sixth.json()["code"] == "QUOTA_DAILY"  # AC-12
-
-        app.state.svc.service.now_fn = tomorrow_fn()  # 东八区自然日切换后配额恢复（配额读服务内部时钟）
-        seventh = await client.post("/api/debates", json={"topic_id": 1, "format": "lite"})
-        assert seventh.status_code == 202
-        await wait_status(client, seventh.json()["id"], "finished")
-        await client.aclose()
+async def test_no_daily_quota(env):
+    """v1.3：每日配额已删除——连打多场不再被 429 拦截（仅并发限 1，串行不受限）。"""
+    client = await new_client(env)
+    await register_and_login(client, "alice")
+    for _ in range(6):  # 超过旧限额 5 场
+        debate_id = (await client.post("/api/debates", json={"topic_id": 1, "format": "lite"})).json()["id"]
+        detail = await wait_status(client, debate_id, "finished")
+        assert detail["status"] == "finished"
+    await client.aclose()
 
 
 async def test_stop_running_debate(env, backend_root, tmp_path):

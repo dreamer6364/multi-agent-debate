@@ -59,6 +59,7 @@ class DebateService:
     # ---- 配额（CONSTRAINTS A5：并发 1 场 + 东八区自然日配额） ----
 
     async def check_quota(self, owner_id: int) -> None:
+        """v1.3 修订：仅并发限制（同时 1 场）；每日场次不限。"""
         async with self.sessionmaker() as session:
             running = await session.execute(
                 select(func.count()).select_from(DebateRow).where(
@@ -67,24 +68,6 @@ class DebateService:
             )
             if (running.scalar_one() or 0) >= self.config.quota.concurrent_debates_per_user:
                 raise QuotaExceeded("QUOTA_CONCURRENT", "已有进行中的比赛，请稍后再试")
-            day_start = self.now_fn().replace(hour=0, minute=0, second=0, microsecond=0)
-            today = await session.execute(
-                select(func.count()).select_from(DebateRow).where(
-                    DebateRow.owner_id == owner_id, DebateRow.created_at >= day_start
-                )
-            )
-            if (today.scalar_one() or 0) >= self.config.quota.daily_debates_per_user:
-                raise QuotaExceeded("QUOTA_DAILY", "已达今日比赛配额上限")
-
-    async def daily_used(self, owner_id: int) -> int:
-        async with self.sessionmaker() as session:
-            day_start = self.now_fn().replace(hour=0, minute=0, second=0, microsecond=0)
-            today = await session.execute(
-                select(func.count()).select_from(DebateRow).where(
-                    DebateRow.owner_id == owner_id, DebateRow.created_at >= day_start
-                )
-            )
-            return today.scalar_one() or 0
 
     # ---- 生命周期 ----
 

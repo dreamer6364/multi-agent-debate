@@ -54,8 +54,7 @@ context:
 judges:
   count: 3                  # 1 | 3 | 5（5 时追加 judge-2/judge-4 通用评委）
 quota:
-  concurrent_debates_per_user: 1
-  daily_debates_per_user: 5
+  concurrent_debates_per_user: 1   # 每日场次不限（v1.3 修订）
 conduct:
   abuse_keywords: ["滚蛋", "蠢", "废物", "无耻"]   # 人身攻击检测词表，可扩展；避免单字误报（如"回滚"）
   max_interrupts_per_answer: 2
@@ -267,7 +266,6 @@ lite 赛制仅执行 phase 2、4、7、8、9（发言序列不变）。
 | `NOT_FOUND` | 404 | 资源不存在 |
 | `FORBIDDEN` | 403 | 访问他人资源 / 删除内置辩题 |
 | `QUOTA_CONCURRENT` | 429 | 已有进行中比赛 |
-| `QUOTA_DAILY` | 429 | 超每日场次配额 |
 | `DEBATE_NOT_RUNNING` | 409 | stop 非运行中比赛 |
 | `EXPORT_NOT_READY` | 409 | 比赛未 finished 即请求导出 |
 | `INTERNAL_ERROR` | 500 | 兜底 |

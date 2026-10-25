@@ -217,7 +217,7 @@ class Verdict(BaseModel):
 
 - 密码 bcrypt 哈希；JWT 放 httpOnly Cookie；受保护路由经 FastAPI 依赖注入 `get_current_user`。
 - 归属校验：debates / 自建 topics 的所有读写先校验 `owner_id == current_user.id`（内置 topics 除外）。
-- 资源护栏（A5）：并发 1 场 + 每日配额（`config.yaml: quota.daily_debates`，默认 5），超限返回 429。
+- 资源护栏（A5）：并发 1 场（超限 429）；每日场次不限（v1.3 修订）。
 - 预留角色扩展位（`users.role` 字段），v1 只实现普通用户。
 
 ---

@@ -184,10 +184,3 @@ async def wait_status(client: AsyncClient, debate_id: int, status: str, timeout:
 def _now_cn():
     return datetime.now(_TZ).replace(tzinfo=None)
 
-
-@pytest.fixture
-def tomorrow_fn():
-    def build():
-        base = _now_cn()
-        return lambda: (base + timedelta(days=1)).replace(tzinfo=None)
-    return build

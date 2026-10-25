@@ -31,8 +31,7 @@ judges:
   count: 3                  # 1 | 3 | 5（5 时追加通用评委）
 
 quota:
-  concurrent_debates_per_user: 1
-  daily_debates_per_user: 5
+  concurrent_debates_per_user: 1   # 同时最多 1 场进行中；每日场次不限（v1.3 修订）
 
 conduct:
   abuse_keywords: ["滚蛋", "蠢", "废物", "无耻"]   # 人身攻击检测词表，可扩展；避免单字误报（如"回滚"）

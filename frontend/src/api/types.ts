@@ -109,5 +109,5 @@ export interface MeInfo {
   id: number;
   username: string;
   role: string;
-  quota: { daily_used: number; daily_limit: number };
+  quota: { concurrent_limit: number; daily_limit: null };
 }

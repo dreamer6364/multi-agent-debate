@@ -69,13 +69,11 @@ async def logout(response: Response):
 
 
 @router.get("/me")
-async def me(request: Request, user: User = Depends(get_current_user),
-             session: AsyncSession = Depends(get_session)):
+async def me(request: Request, user: User = Depends(get_current_user)):
     state: AppState = get_state(request)
-    daily_used = await state.service.daily_used(user.id)
     return {
         "id": user.id,
         "username": user.username,
         "role": user.role,
-        "quota": {"daily_used": daily_used, "daily_limit": state.config.quota.daily_debates_per_user},
+        "quota": {"concurrent_limit": state.config.quota.concurrent_debates_per_user, "daily_limit": None},
     }

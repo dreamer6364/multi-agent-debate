@@ -187,7 +187,7 @@
 | IT-DEB-02 | custom_topic 发起 | 自定义辩题先落 topics（owner=当前用户）再关联 |
 | IT-DEB-03 | GET bob 的比赛 | 404 |
 | IT-DEB-04 | alice 已有 running 再发起 | 429 QUOTA_CONCURRENT |
-| IT-DEB-05 | 当日第 6 场（时钟推进） | 429 QUOTA_DAILY；次日恢复 |
+| IT-DEB-05 | 连打 6 场（超旧日限 5） | 全部 202/finished——每日配额已删（v1.3），仅并发限 1 |
 | IT-DEB-06 | stop running / stop finished | 200 stopped / 409 DEBATE_NOT_RUNNING |
 | IT-DEB-07 | 赛后导出 md/html；进行中导出 | 200（md=text/markdown）/ 409 EXPORT_NOT_READY |
 
@@ -277,7 +277,7 @@
 | AC-09 | 胜负判定符合三级规则 | UT-SCO-03/04 |
 | AC-10 | SSE 断线重连不丢发言 | SSE-03、FE-STR-04 |
 | AC-11 | 未登录/非属主不可见他人比赛 | IT-AUT-04、IT-DEB-03 |
-| AC-12 | 配额拦截生效 | IT-DEB-04/05 |
+| AC-12 | 并发护栏生效（每日不限，v1.3） | IT-DEB-04/05 |
 
 ---
 

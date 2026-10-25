@@ -94,7 +94,7 @@ cd frontend && npm test                              # 9 项：直播 Hook/组�
 | 三级胜负判定规则 | ✅ | UT-SCO |
 | SSE 断线重连不丢发言 | ✅ | SSE-03（after_seq 续传） |
 | 他人比赛不可见 | ✅ | IT-DEB-03（404 不泄露存在性） |
-| 配额拦截生效 | ✅ | IT-DEB-04/05（并发 1 + 每日配额） |
+| 并发护栏生效（每日不限） | ✅ | IT-DEB-04/05（并发 1 场；v1.3 删除每日配额） |
 | 前端直播页/Hook 行为 | ✅ | Vitest FE-STR/FE-CMP + 真浏览器冒烟 |
 | E2E-Web（Playwright）/ 真模型 lite 冒烟 | ✅ | E2E-WEB-01（Edge 通道 9.6s）+ GLM glm-4.5-flash lite 实跑出分 |
 

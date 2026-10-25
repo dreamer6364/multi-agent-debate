@@ -56,8 +56,7 @@ class JudgesConfig(BaseModel):
 
 
 class QuotaConfig(BaseModel):
-    concurrent_debates_per_user: int = 1
-    daily_debates_per_user: int = 5
+    concurrent_debates_per_user: int = 1  # 并发限 1 场；每日场次不限（v1.3 修订：删除每日配额）
 
 
 class ConductConfig(BaseModel):

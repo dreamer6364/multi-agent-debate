@@ -59,7 +59,7 @@ export default function TopicsPage() {
   const debates = debatesData?.items ?? [];
   const running = debates.filter((d) => d.status === "running" || d.status === "pending");
   const last = debates.find((d) => d.status === "finished");
-  const quota = meInfo?.quota;
+  void meInfo; // 保留 me 查询（登录态/未来扩展），quota 面板已改为“不限”
   const lastText = last
     ? `${last.winner === "pro" ? "正方胜" : last.winner === "con" ? "反方胜" : "平局"} · ${last.format === "full" ? "完整赛制" : "精简赛制"}`
     : "还没有完成的对局";
@@ -115,12 +115,9 @@ export default function TopicsPage() {
           <div className="stat-hint">全部可回看 · 支持导出</div>
         </div>
         <div className="neu-raised stat-card">
-          <div className="stat-label">今日配额</div>
-          <div className="stat-value">
-            {quota ? quota.daily_limit - quota.daily_used : "–"}
-            <span className="stat-unit">/ {quota?.daily_limit ?? "–"} 场剩余</span>
-          </div>
-          <div className="stat-hint">并发限 1 场 · 每日自然重置</div>
+          <div className="stat-label">发起场次</div>
+          <div className="stat-value stat-accent">不限</div>
+          <div className="stat-hint">随时开赛 · 并发限 1 场</div>
         </div>
         <div className="neu-raised stat-card">
           <div className="stat-label">最近赛果</div>
