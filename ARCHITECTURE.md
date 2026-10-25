@@ -245,6 +245,7 @@ Multi-Agent Debate/
 │   │   │   ├── nodes/          # phases.py  officials.py  judges.py
 │   │   │   ├── agents/         # loader.py  context.py
 │   │   │   ├── rag/            # corpus.py  retriever.py  websearch.py（v1.4 + v1.4.1）
+│   │   ├── tools/           # elenchus.py（v1.6：论证分析，inproc + MCP stdio 客户端）
 │   │   ├── sim/            # timer.py  interrupt.py  digest.py
 │   │   │   ├── llm/gateway.py
 │   │   │   ├── schema.py       # §6 数据结构

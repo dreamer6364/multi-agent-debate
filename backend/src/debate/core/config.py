@@ -72,6 +72,20 @@ class RagConfig(BaseModel):
     knowledge_dir: str = "knowledge"
 
 
+class ElenchusConfig(BaseModel):
+    enabled: bool = True
+    mode: str = "inproc"      # inproc（进程内直调，稳定）| mcp（stdio JSON-RPC 子进程）
+    check: str = "fallacy"    # fallacy / rhetoric / bias / scam / all
+    per_camp: int = 2         # 每方分析的核心论点数
+    timeout_seconds: float = 45.0
+
+
+class ToolsConfig(BaseModel):
+    """运行时工具层（v1.6）：Elenchus 论证分析等，全部静默降级。"""
+
+    elenchus: ElenchusConfig = ElenchusConfig()
+
+
 class WebSearchConfig(BaseModel):
     enabled: bool = True
     top_k: int = 3
@@ -96,6 +110,7 @@ class AppConfig(BaseModel):
     conduct: ConductConfig = ConductConfig()
     rag: RagConfig = RagConfig()
     web_search: WebSearchConfig = WebSearchConfig()
+    tools: ToolsConfig = ToolsConfig()
     stream: StreamConfig = StreamConfig()
     export: ExportConfig = ExportConfig()
 

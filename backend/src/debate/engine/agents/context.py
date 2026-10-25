@@ -106,6 +106,7 @@ def build_judge_messages(
     excerpts: list,
     checklist: str,
     instruction: str,
+    machine_analysis_text: str = "",
 ) -> list[dict[str, str]]:
     """评委调用消息：双方立场与要点 + digest + 原文摘录池 + 各环节要点清单。"""
     both = (
@@ -123,6 +124,10 @@ def build_judge_messages(
         both,
         f"【战局摘要】\n{digest_text}",
         "【原文摘录】\n" + ("\n".join(pool_lines) if pool_lines else "（暂无）"),
+    ]
+    if machine_analysis_text:
+        blocks.append(machine_analysis_text)  # v1.6 Elenchus 机器论证分析（仅逻辑评委）
+    blocks += [
         f"【各环节要点清单】\n{checklist}",
         f"【评审任务】\n{instruction}",
     ]

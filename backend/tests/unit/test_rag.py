@@ -138,6 +138,7 @@ def test_websearch_merges_into_runner_evidence(monkeypatch, assets_root):
     monkeypatch.setattr("debate.engine.runner.search_as_cards", fake_search)
     cfg = load_config(assets_root / "config.yaml").model_dump()
     cfg["procedure"]["phases"]["free_debate"] = 1.0
+    cfg["tools"]["elenchus"]["enabled"] = False
     cfg["web_search"]["provider"] = "none"  # 绕过 env 探测，注入 mock 直接生效
     config = AppConfig.model_validate(cfg)
 

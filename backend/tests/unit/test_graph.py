@@ -14,6 +14,7 @@ from tests.fakes.llm import FakeLLM
 def lite_config(backend_root):
     cfg = load_config(backend_root / "config.yaml").model_dump()
     cfg["procedure"]["phases"]["free_debate"] = 1.0  # 池 220/方，短打上限 110 → 每方 2 回合
+    cfg["tools"]["elenchus"]["enabled"] = False  # 单测不触发真实 Elenchus
     return AppConfig.model_validate(cfg)
 
 

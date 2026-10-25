@@ -1,0 +1,107 @@
+"""Elenchus 接入测试（v1.6）：注入格式、静默降级、逻辑评委独占注入。"""
+from debate.engine.agents.context import build_judge_messages
+from debate.engine.agents.loader import load_agents, load_topics
+from debate.engine.schema import Camp, Speech
+from debate.engine.sim.digest import Digest, render_digest
+
+
+def _speech(seq, camp, text, speaker="pro-1"):
+    return Speech(seq=seq, phase=2, phase_name="开篇立论", speaker=speaker,
+                  camp=camp, text=text, word_count=len(text))
+
+
+def test_analyze_speeches_renders_findings(monkeypatch):
+    from debate.engine.tools import elenchus as et
+
+    def fake_analyze(text, check="fallacy", sensitivity=None):
+        assert check == "fallacy"
+        return {"overall": "x", "findings": [
+            {"name": "Ad hominem", "quote": "你反对就是嫉妒", "explanation": "e", "confidence": "high"},
+        ]}
+
+    monkeypatch.setattr(et, "_analyze_inproc", fake_analyze)
+    speeches = [_speech(1, Camp.PRO, "长篇立论" * 20), _speech(2, Camp.CON, "对方立论" * 20, "con-1")]
+    text = et.analyze_speeches(speeches, mode="inproc")
+    assert text.startswith("【机器论证分析】")
+    assert "仅供参考" in text  # 工具检测 ≠ 评委结论
+    assert "Ad hominem" in text and "你反对就是嫉妒" in text
+    assert "[正方·pro-1]" in text and "[反方·con-1]" in text
+
+
+def test_analyze_speeches_silent_when_not_installed(monkeypatch):
+    import sys as _sys
+    from debate.engine.tools import elenchus as et
+
+    monkeypatch.setitem(_sys.modules, "elenchus", None)  # None 条目 → import 即 ImportError
+    monkeypatch.setitem(_sys.modules, "elenchus.core", None)
+    monkeypatch.setitem(_sys.modules, "elenchus.core.analyzer", None)
+    assert et.analyze_speeches([_speech(1, Camp.PRO, "x" * 60)]) == ""
+
+
+def test_analyze_speeches_per_failure_skipped(monkeypatch):
+    from debate.engine.tools import elenchus as et
+
+    calls = {"n": 0}
+
+    def flaky(text, check="fallacy", sensitivity=None):
+        calls["n"] += 1
+        raise RuntimeError("这条炸了")
+
+    monkeypatch.setattr(et, "_analyze_inproc", flaky)
+    out = et.analyze_speeches([_speech(1, Camp.PRO, "x" * 60), _speech(2, Camp.CON, "y" * 60, "con-1")])
+    assert out == "" and calls["n"] == 2  # 全失败 → 空段（降级）
+
+
+def test_judge_context_machine_analysis_position(assets_root):
+    """机器分析段注入位置：原文摘录之后、要点清单之前；且仅逻辑评委获得。"""
+    agents = load_agents(assets_root)
+    topic = load_topics(assets_root)[0]
+    ma = "【机器论证分析】（仅供参考）\n- [正方·pro-1] Slippery slope（high）：引用“x”"
+    common = dict(topic=topic, digest_text=render_digest(Digest()),
+                  excerpts=[], checklist="要点", instruction="评审")
+    msgs_logic = build_judge_messages(spec=agents["judge-logic"], machine_analysis_text=ma, **common)
+    msgs_content = build_judge_messages(spec=agents["judge-content"], machine_analysis_text="", **common)
+    logic = msgs_logic[1]["content"]
+    assert "【机器论证分析】" in logic
+    assert logic.index("【原文摘录】") < logic.index("【机器论证分析】") < logic.index("【各环节要点清单】")
+    assert "【机器论证分析】" not in msgs_content[1]["content"]  # 其他评委不注入
+
+
+def test_mcp_stdio_client_protocol(tmp_path, monkeypatch):
+    """MCP 模式：stdio JSON-RPC 客户端协议正确性（用本地假 server 验证，不依赖真 elenchus mcp）。"""
+    import json as _json
+    import subprocess
+    import sys
+    import textwrap
+
+    server_py = tmp_path / "fake_mcp_server.py"
+    server_py.write_text(textwrap.dedent("""
+        import json, sys
+        for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
+            req = json.loads(line)
+            if req.get("method") == "initialize":
+                print(json.dumps({"jsonrpc": "2.0", "id": req["id"], "result": {"protocolVersion": "2024-11-05", "capabilities": {}}}), flush=True)
+            elif req.get("method") == "notifications/initialized":
+                pass
+            elif req.get("method") == "tools/call" and req["params"]["name"] == "analyze":
+                out = {"overall": "ok", "findings": [{"name": "Strawman", "quote": "q", "confidence": "low"}]}
+                print(json.dumps({"jsonrpc": "2.0", "id": req["id"], "result": {"content": [{"type": "text", "text": json.dumps(out, ensure_ascii=False)}]}}), flush=True)
+    """), encoding="utf-8")
+
+    from debate.engine.tools import elenchus as et
+
+    real_popen = subprocess.Popen  # patch 前留原引用（lambda 内再取会递归）
+
+    def fake_popen(cmd, **kw):
+        return real_popen([sys.executable, str(server_py)], **kw)
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    client = et._McpStdioClient(timeout=5)
+    try:
+        result = client.call_analyze("测试论证", "fallacy")
+        assert result["findings"][0]["name"] == "Strawman"
+    finally:
+        client.close()

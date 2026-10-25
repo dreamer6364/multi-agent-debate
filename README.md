@@ -2,6 +2,8 @@
 
 用多 Agent 模拟一场完整的辩论赛：两支四人队伍围绕同一辩题对抗博弈，配主席、计时员、三位各有侧重的评委，按真实赛制走完 13 个环节，通过 SSE 实时直播到网页，赛后归档入库并可导出 Markdown / HTML 报告。
 
+**Elenchus 论证分析（可选，默认开启）**：逻辑评委点评前自动对双方核心论点做谬误检测（诉诸权威/人身攻击/滑坡等 57 类），结果作为结构化参考注入。源码已随库（`backend/third_party/elenchus`，GitHub 被墙也无需联网），启用安装：`cd backend && uv pip install "./third_party/elenchus[mcp]" "mcp>=1.2,<2"`；未安装自动静默降级。两种模式：`inproc`（进程内直调，默认稳定）/ `mcp`（stdio JSON-RPC 子进程，真 MCP 协议路径）。
+
 **联网搜索（可选）**：辩手开赛时自动检索网络资料并入论据。三种引擎按需启用（`backend/.env`）：
 `SEARCH_PROVIDER=zhipu`（用现有智谱 key，需搜索资源包）｜`SEARCH_PROVIDER=tavily` + `TAVILY_API_KEY=tvly-xxx`（[tavily.com](https://tavily.com) 免费注册 1000 次/月）｜`SEARCH_PROVIDER=ddgs`（零 key，需 `pip install ddgs`，海外网络）。搜索失败自动回落本地证据卡，不影响比赛。
 

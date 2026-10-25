@@ -9,6 +9,7 @@ from ..procedure import PHASE_NAMES, PHASE_NUMBERS
 from ..runtime import DebateContext
 from ..schema import CAMP_CN, Camp, ScoreCard, Speech
 from ..scoring import ScoreParseError, abstain_card, dims_for_format, parse_scorecard
+from ..tools import elenchus as elenchus_tool
 from ..sim.digest import render_digest
 from .phases import _emit
 
@@ -57,12 +58,24 @@ def make_judging_node(ctx: DebateContext):
         digest_text = render_digest(state["digest"])
         checklist = _checklist(base)
 
+        # v1.6 Elenchus 机器论证分析：仅注入逻辑评委（工具检测 ≠ 评委结论）
+        machine_analysis = ""
+        if ctx.config.tools.elenchus.enabled and "judge-logic" in judge_ids:
+            machine_analysis = elenchus_tool.analyze_speeches(
+                [s for s in base if s.camp is not Camp.NEUTRAL],
+                per_camp=ctx.config.tools.elenchus.per_camp,
+                check=ctx.config.tools.elenchus.check,
+                timeout=ctx.config.tools.elenchus.timeout_seconds,
+                mode=ctx.config.tools.elenchus.mode,
+            )
+
         async def one(judge_id: str) -> ScoreCard:
             spec = ctx.agents[judge_id]
             messages = build_judge_messages(
                 spec=spec, topic=ctx.topic, digest_text=digest_text,
                 excerpts=state["digest"].excerpts, checklist=checklist,
                 instruction=_judge_instruction(ctx.format),
+                machine_analysis_text=machine_analysis if judge_id == "judge-logic" else "",
             )
             attempts: list[str] = []
             card = None

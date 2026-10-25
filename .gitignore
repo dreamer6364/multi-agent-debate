@@ -29,3 +29,4 @@ frontend/dist/
 dist/
 build/
 debate-e2e.db
+third_party/
