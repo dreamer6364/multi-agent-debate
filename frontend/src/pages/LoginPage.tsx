@@ -3,6 +3,15 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { login, register } from "../api/client";
 
+/** 错误分类（v1.4.3）：网络/服务不可达 ≠ 凭证错误，禁止笼统提示误导用户。 */
+function authErrorMessage(err: unknown, fallback: string): string {
+  const e = err as { response?: { status?: number } };
+  if (!e || e.response === undefined) {
+    return "无法连接服务器：请确认后端已启动（双击 start.bat），稍后重试";
+  }
+  return fallback;
+}
+
 const SELLING_POINTS = [
   { icon: "播", title: "逐字直播", desc: "Agent 发言打字机实时渲染" },
   { icon: "评", title: "独立裁决", desc: "三位评委引用原话打分" },
@@ -22,8 +31,8 @@ function LoginForm({ onDone }: { onDone: () => void }) {
           await login(values.username, values.password);
           message.success("登录成功");
           onDone();
-        } catch {
-          message.error("用户名或密码错误");
+        } catch (err) {
+          message.error(authErrorMessage(err, "用户名或密码错误"));
         }
       }}
     >
@@ -52,8 +61,13 @@ function RegisterForm({ onDone }: { onDone: () => void }) {
           await login(values.username, values.password);
           message.success("注册并登录成功");
           onDone();
-        } catch {
-          message.error("注册失败（用户名可能已被占用）");
+        } catch (err) {
+          const e = err as { response?: { status?: number } };
+          if (e?.response?.status === 409) {
+            message.error("用户名已被占用，请换一个");
+          } else {
+            message.error(authErrorMessage(err, "注册失败，请稍后重试"));
+          }
         }
       }}
     >
