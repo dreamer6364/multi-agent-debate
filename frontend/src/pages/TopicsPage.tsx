@@ -1,8 +1,16 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { App as AntApp, Form, Input, Modal, Select } from "antd";
 import { useState } from "react";
-import { createDebate, createTopic, deleteTopic, getDebates, listTopics, me } from "../api/client";
+import { createDebate, createTopic, deleteTopic, getDebates, listTopics } from "../api/client";
 import type { TopicItem } from "../api/types";
+
+/** 立场摘要：取破题要点前 2 条（顿号连接），多余的以"N 点"收尾——真正的观点，而非重复命题。 */
+function stanceSummary(raw: string): string {
+  const points = raw.split("\n").map((line) => line.trim()).filter(Boolean);
+  if (points.length === 0) return "—";
+  const head = points.slice(0, 2).join(" · ");
+  return points.length > 2 ? `${head} 等 ${points.length} 点` : head;
+}
 
 function TopicRow({ topic, onLaunch, onDelete }: {
   topic: TopicItem;
@@ -27,7 +35,9 @@ function TopicRow({ topic, onLaunch, onDelete }: {
           )}
         </div>
         <div className="topic-row-stance">
-          <b className="pro">正</b> {topic.pro_stance}　<b className="con">反</b> {topic.con_stance}
+          <b className="pro">正方观点</b> {stanceSummary(topic.pro_points)}
+          <span style={{ margin: "0 8px", color: "var(--ink-3)" }}>|</span>
+          <b className="con">反方观点</b> {stanceSummary(topic.con_points)}
         </div>
       </div>
       <button
@@ -45,7 +55,6 @@ export default function TopicsPage() {
   const { message } = AntApp.useApp();
   const queryClient = useQueryClient();
   const { data: topics = [] } = useQuery({ queryKey: ["topics"], queryFn: listTopics });
-  const { data: meInfo } = useQuery({ queryKey: ["me"], queryFn: me, retry: false });
   const { data: debatesData } = useQuery({
     queryKey: ["debates"],
     queryFn: () => getDebates({ page_size: 100 }),
@@ -59,7 +68,6 @@ export default function TopicsPage() {
   const debates = debatesData?.items ?? [];
   const running = debates.filter((d) => d.status === "running" || d.status === "pending");
   const last = debates.find((d) => d.status === "finished");
-  void meInfo; // 保留 me 查询（登录态/未来扩展），quota 面板已改为“不限”
   const lastText = last
     ? `${last.winner === "pro" ? "正方胜" : last.winner === "con" ? "反方胜" : "平局"} · ${last.format === "full" ? "完整赛制" : "精简赛制"}`
     : "还没有完成的对局";

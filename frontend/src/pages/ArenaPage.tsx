@@ -151,7 +151,7 @@ export default function ArenaPage() {
       {storeError && status === "failed" && <div className="neu-chip danger">{storeError}</div>}
       {verdict && <VerdictBanner verdict={verdict} />}
       {terminal && status === "finished" && detail?.usage && (
-        <p style={{ color: "#888" }}>
+        <p style={{ color: "var(--ink-3)" }}>
           LLM 用量：{detail.usage.calls ?? 0} 次调用 / {(detail.usage.prompt_tokens ?? 0) + (detail.usage.completion_tokens ?? 0)} tokens
         </p>
       )}

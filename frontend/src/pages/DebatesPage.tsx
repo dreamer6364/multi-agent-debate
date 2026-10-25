@@ -29,7 +29,11 @@ export default function DebatesPage() {
   });
   const items = data?.items ?? [];
   const [filter, setFilter] = useState<"all" | "running" | "finished">("all");
-  const filtered = filter === "all" ? items : items.filter((d) => d.status === filter);
+  const filtered = filter === "all"
+    ? items
+    : filter === "running"
+      ? items.filter((d) => d.status === "running" || d.status === "pending") // 进行中含等待启动
+      : items.filter((d) => d.status === filter);
   return (
     <div>
       <div className="ws-toolbar">
