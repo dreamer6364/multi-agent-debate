@@ -11,6 +11,7 @@ from .graph.builder import build_graph
 from .graph.state import initial_state
 from .llm.gateway import Gateway
 from .rag.retriever import EvidenceRetriever
+from .rag.websearch import resolve_provider, search_as_cards
 from .runtime import DebateAborted, DebateCancelled, DebateContext
 from .schema import Camp, DebateFormat, ScoreCard, Speech, Topic, Verdict
 from .sim.digest import Digest
@@ -44,6 +45,7 @@ def run_debate(
         agents = load_agents(Path(assets_root) if assets_root else Path.cwd())
 
     # RAG 预检索（v1.4）：双方各自按辩题+己方命题取 top_k 证据卡，全场环节复用
+    # v1.4.1：联网搜索结果并入（provider 见 config.web_search；失败静默回落本地）
     evidence: dict = {Camp.PRO: [], Camp.CON: []}
     if config.rag.enabled:
         root = Path(assets_root) if assets_root else Path.cwd()
@@ -52,6 +54,15 @@ def run_debate(
             Camp.PRO: retriever.evidence_for(topic, Camp.PRO, top_k=config.rag.top_k),
             Camp.CON: retriever.evidence_for(topic, Camp.CON, top_k=config.rag.top_k),
         }
+    if config.web_search.enabled:
+        provider = config.web_search.provider
+        provider = resolve_provider() if provider == "env" else provider
+        for camp in (Camp.PRO, Camp.CON):
+            web_cards = search_as_cards(
+                f"{topic.title} {topic.stance_for(camp)}",
+                top_k=config.web_search.top_k, provider=provider,
+            )
+            evidence[camp] = list(evidence[camp]) + web_cards
 
     ctx = DebateContext(
         config=config, topic=topic, agents=agents, gateway=gateway,

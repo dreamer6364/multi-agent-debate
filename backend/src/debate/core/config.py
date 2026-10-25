@@ -71,6 +71,13 @@ class RagConfig(BaseModel):
     knowledge_dir: str = "knowledge"
 
 
+class WebSearchConfig(BaseModel):
+    enabled: bool = True
+    top_k: int = 3
+    # provider：env（SEARCH_PROVIDER / TAVILY_API_KEY 自动探测）| zhipu | tavily | ddgs | none
+    provider: str = "env"
+
+
 class StreamConfig(BaseModel):
     enable_delta: bool = True  # speech_delta 流式直播（v2.1）
 
@@ -87,6 +94,7 @@ class AppConfig(BaseModel):
     quota: QuotaConfig = QuotaConfig()
     conduct: ConductConfig = ConductConfig()
     rag: RagConfig = RagConfig()
+    web_search: WebSearchConfig = WebSearchConfig()
     stream: StreamConfig = StreamConfig()
     export: ExportConfig = ExportConfig()
 

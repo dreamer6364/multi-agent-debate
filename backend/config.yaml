@@ -43,6 +43,12 @@ rag:
   top_k: 3                  # 每阵营注入的证据卡数
   knowledge_dir: knowledge  # 证据卡目录（markdown）
 
+web_search:
+  enabled: true             # 联网搜索增强（v1.4.1）：开赛检索网络资料并入证据参考
+  top_k: 3                  # 每阵营注入的网络结果数
+  provider: env             # env（自动探测）/ zhipu（需搜索资源包）/ tavily（需 TAVILY_API_KEY）/ ddgs / none
+                            # 搜索失败一律静默回落本地证据卡，绝不阻塞比赛
+
 stream:
   enable_delta: true       # SSE speech_delta 流式直播（v2.1）
 

@@ -73,3 +73,77 @@ def test_context_injects_evidence_and_trims_last(assets_root):
         recent=[], instruction="立论", evidence_text=ev, max_input_tokens=260,
     )
     assert "【证据参考】" not in tight[1]["content"]  # 证据段最后裁（v1.4）
+
+
+def test_websearch_silent_degradation_and_provider_resolution(monkeypatch):
+    """联网搜索（v1.4.1）：provider 解析 + 任何异常静默返回空（不阻塞比赛）。"""
+    from debate.engine.rag import websearch as ws
+
+    monkeypatch.setenv("SEARCH_PROVIDER", "zhipu")
+    assert ws.resolve_provider() == "zhipu"
+    monkeypatch.delenv("SEARCH_PROVIDER")
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    assert ws.resolve_provider() == "none"
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-x")
+    assert ws.resolve_provider() == "tavily"
+
+    assert ws.web_search("q", provider="none") == []
+    assert ws.web_search("q", provider="不存在") == []
+
+    def boom(query, top_k):
+        raise RuntimeError("网络炸了")
+
+    monkeypatch.setitem(ws._PROVIDERS, "tavily", boom)
+    assert ws.web_search("q", provider="tavily") == []  # 静默降级
+
+    def no_ddgs(query, top_k):
+        raise ImportError("ddgs 未安装")
+
+    monkeypatch.setitem(ws._PROVIDERS, "ddgs", no_ddgs)
+    assert ws.web_search("q", provider="ddgs") == []  # 可选依赖缺失也静默
+
+
+def test_websearch_cards_adapter():
+    from debate.engine.rag.websearch import WebEvidence, _to_card
+    from debate.engine.rag.retriever import render_evidence
+
+    card = _to_card(WebEvidence(
+        title="AI 依赖风险研究", url="https://example.com/paper/abc",
+        snippet="研究发现过度依赖导致技能退化……"))
+    assert card.source == "网络检索 · example.com"
+    assert card.source_type == "网络"
+    assert "URL: https://example.com/paper/abc" in card.text
+    text = render_evidence([card])
+    assert "【证据参考】" in text and "网络检索 · example.com" in text
+
+
+def test_websearch_merges_into_runner_evidence(monkeypatch, assets_root):
+    """runner 预检索：网络结果并入本地证据（runner 级 mock，不真联网）。"""
+    from debate.core.config import AppConfig, load_config
+    from debate.engine.agents.loader import load_topics
+    from debate.engine.llm.gateway import Gateway
+    from debate.engine.rag.corpus import EvidenceCard
+    from debate.engine.runner import run_debate
+    from debate.engine.schema import DebateFormat
+    from tests.fakes.compressor import fake_columns
+    from tests.fakes.llm import FakeLLM
+
+    captured: list[str] = []
+
+    def fake_search(query, top_k=3, provider=None):
+        captured.append(query)
+        return [EvidenceCard(card_id="web", title="网络结果", source="网络检索 · test.com",
+                             source_type="网络", text="网络检索到的论据。")]
+
+    monkeypatch.setattr("debate.engine.runner.search_as_cards", fake_search)
+    cfg = load_config(assets_root / "config.yaml").model_dump()
+    cfg["procedure"]["phases"]["free_debate"] = 1.0
+    cfg["web_search"]["provider"] = "none"  # 绕过 env 探测，注入 mock 直接生效
+    config = AppConfig.model_validate(cfg)
+
+    gw = Gateway(backend=FakeLLM.scripted(assets_root / "tests" / "fakes" / "script_lite.json"),
+                 model_debater="fake", model_official="fake", max_retries=1, sleep=lambda s: None)
+    result = run_debate(topic=load_topics(assets_root)[0], fmt=DebateFormat.LITE, config=config,
+                        gateway=gw, compressor=fake_columns, assets_root=assets_root)
+    assert result.status == "finished"
+    assert len(captured) == 2  # 正反双方各一次检索

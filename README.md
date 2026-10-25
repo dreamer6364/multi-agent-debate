@@ -2,13 +2,16 @@
 
 用多 Agent 模拟一场完整的辩论赛：两支四人队伍围绕同一辩题对抗博弈，配主席、计时员、三位各有侧重的评委，按真实赛制走完 13 个环节，通过 SSE 实时直播到网页，赛后归档入库并可导出 Markdown / HTML 报告。
 
+**联网搜索（可选）**：辩手开赛时自动检索网络资料并入论据。三种引擎按需启用（`backend/.env`）：
+`SEARCH_PROVIDER=zhipu`（用现有智谱 key，需搜索资源包）｜`SEARCH_PROVIDER=tavily` + `TAVILY_API_KEY=tvly-xxx`（[tavily.com](https://tavily.com) 免费注册 1000 次/月）｜`SEARCH_PROVIDER=ddgs`（零 key，需 `pip install ddgs`，海外网络）。搜索失败自动回落本地证据卡，不影响比赛。
+
 **文档**：[PRD.md](PRD.md)（需求）· [ARCHITECTURE.md](ARCHITECTURE.md)（架构）· [SPEC.md](SPEC.md)（详细规格）· [CONSTRAINTS.md](CONSTRAINTS.md)（硬约束卡）· [AGENT_CONSTRAINTS.md](AGENT_CONSTRAINTS.md)（Agent 行为约束）· [TEST_PLAN.md](TEST_PLAN.md)（测试计划）
 
 ## 技术栈
 
 | 层 | 选型 |
 |---|---|
-| 引擎 | Python 3.11+ · LangGraph · OpenAI 兼容协议（GLM/DeepSeek/Kimi/OpenAI 可切换） · RAG 证据检索（BM25） |
+| 引擎 | Python 3.11+ · LangGraph · OpenAI 兼容协议（GLM/DeepSeek/Kimi/OpenAI 可切换） · RAG 证据检索（BM25 + 可选联网搜索） |
 | 后端 | FastAPI · SQLModel · MySQL 8（开发/测试可回落 SQLite） · SSE |
 | 前端 | React 18 + Vite + TypeScript + Ant Design 5 · zustand · TanStack Query |
 | 交付 | Docker Compose（backend + mysql + nginx） |

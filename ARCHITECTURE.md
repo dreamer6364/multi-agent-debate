@@ -244,7 +244,7 @@ Multi-Agent Debate/
 │   │   │   ├── graph/          # state.py  builder.py(full/lite 裁剪)
 │   │   │   ├── nodes/          # phases.py  officials.py  judges.py
 │   │   │   ├── agents/         # loader.py  context.py
-│   │   │   ├── rag/            # corpus.py  retriever.py（BM25 证据检索，v1.4）
+│   │   │   ├── rag/            # corpus.py  retriever.py  websearch.py（v1.4 + v1.4.1）
 │   │   ├── sim/            # timer.py  interrupt.py  digest.py
 │   │   │   ├── llm/gateway.py
 │   │   │   ├── schema.py       # §6 数据结构
