@@ -206,7 +206,7 @@ lite 赛制仅执行 phase 2、4、7、8、9（发言序列不变）。
 4. 最近 `recent_speeches`（默认 6）条原文，前缀 `[seq][camp-role]`；
 5. 本环节任务指令：发言方、字数预算、环节句式要求（如驳论"对方说 X→但…"）、打断规则提示。
 
-特例：phase 8 总结手与 phase 9 评委不注入"最近 6 条"，改注入**全场 digest 全量 + 各环节要点清单 + 原文摘录池**（digest 生成时随五栏抽取，每环节 ≤4 条原句，AGENT_CONSTRAINTS §6）。单次输入超 `max_input_tokens` 时按 **④最近原文 → ③digest → ②要点** 顺序裁剪（v2.1 修订，原"4→2→3"为笔误；任务指令与 system 永不裁剪）。
+特例：phase 8 总结手与 phase 9 评委不注入"最近 6 条"，改注入**全场 digest 全量 + 各环节要点清单 + 原文摘录池**（digest 生成时随五栏抽取，每环节 ≤4 条原句，AGENT_CONSTRAINTS §6）。单次输入超 `max_input_tokens` 时按 **④最近原文 → ③digest → ②要点 → ⑤证据** 顺序裁剪（证据段最后裁）（v2.1 修订，原"4→2→3"为笔误；任务指令与 system 永不裁剪）。
 
 ### 4.5 digest 规格（`sim/digest.py`）
 

@@ -21,6 +21,7 @@ model:
     digest: 0.2             # 战局摘要：压缩任务
   max_retries: 3
   timeout_seconds: 60
+  min_call_interval: 12.0   # 相邻 LLM 调用最小间隔（免费档 RPM 保护；0=不限）
 
 context:
   recent_speeches: 6        # 注入最近原文条数 K
@@ -36,6 +37,11 @@ quota:
 conduct:
   abuse_keywords: ["滚蛋", "蠢", "废物", "无耻"]   # 人身攻击检测词表，可扩展；避免单字误报（如"回滚"）
   max_interrupts_per_answer: 2
+
+rag:
+  enabled: true             # 证据检索增强（v1.4）：辩手上下文注入书籍/文献证据卡
+  top_k: 3                  # 每阵营注入的证据卡数
+  knowledge_dir: knowledge  # 证据卡目录（markdown）
 
 stream:
   enable_delta: true       # SSE speech_delta 流式直播（v2.1）

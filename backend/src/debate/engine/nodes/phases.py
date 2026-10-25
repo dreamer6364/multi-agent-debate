@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from ..agents.context import build_debater_messages, estimate_tokens
+from ..rag.retriever import render_evidence
 from ..llm.gateway import LLMExhausted, LLMResult
 from ..procedure import PHASE_NAMES, PHASE_NUMBERS, minutes_for
 from ..runtime import DebateAborted, DebateCancelled, DebateContext
@@ -116,6 +117,7 @@ def _ask(
         topic=ctx.topic,
         digest_text=digest_text,
         recent=recent,
+        evidence_text=render_evidence((ctx.evidence or {}).get(spec.camp, [])),
         instruction=f"{instruction}（本次发言预算约 {cap_words} 字）",
         recent_k=config.context.recent_speeches,
         max_input_tokens=config.context.max_input_tokens,

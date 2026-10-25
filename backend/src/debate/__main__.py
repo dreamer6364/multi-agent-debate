@@ -92,6 +92,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             model_debater=os.environ.get("MODEL_DEBATER", ""),
             model_official=os.environ.get("MODEL_OFFICIAL", ""),
             max_retries=config.model.max_retries,
+            min_interval=config.model.min_call_interval,
             extra_body=extra_body_from_env(),
         )
         compressor = make_llm_columns_compressor(gateway, temperature=config.model.temperature.digest)

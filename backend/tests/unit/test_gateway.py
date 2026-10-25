@@ -84,3 +84,74 @@ def test_stream_exhausts_after_retries():
     with pytest.raises(LLMExhausted):
         list(gateway.stream([{"role": "user", "content": "x"}],
                             tier="debater", temperature=0.5, max_tokens=64))
+
+
+class FakeRateLimitError(Exception):
+    """模拟 openai.RateLimitError（按类名匹配，不依赖 openai 导入）。"""
+
+
+def test_gateway_backs_off_long_on_rate_limit():
+    class Throttled:
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, messages, **kwargs):
+            self.calls += 1
+            if self.calls <= 2:  # 前两次限流，第三次恢复
+                raise FakeRateLimitError("429 Too Many Requests")
+            return "恢复"
+
+    waits: list[float] = []
+    gateway = Gateway(backend=Throttled(), model_debater="d", model_official="o",
+                      max_retries=3, sleep=waits.append)
+    result = gateway.complete([{"role": "user", "content": "x"}],
+                              tier="debater", temperature=0.5, max_tokens=64)
+    assert result.text == "恢复"
+    assert waits == [45.0, 45.0]  # 限流退避 45s（v1.4：扛过免费档分钟级限窗）
+
+
+def test_gateway_short_backoff_on_other_errors():
+    waits: list[float] = []
+
+    class Flaky:
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, messages, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("瞬态故障")
+            return "OK"
+
+    gateway = Gateway(backend=Flaky(), model_debater="d", model_official="o",
+                      max_retries=3, sleep=waits.append)
+    assert gateway.complete([{"role": "user", "content": "x"}],
+                            tier="debater", temperature=0.5, max_tokens=64).text == "OK"
+    assert waits == [1.0]  # 普通错误仍指数退避
+
+
+def test_gateway_throttles_by_min_interval():
+    """全局限速（v1.4）：相邻调用间隔不足 min_interval 时自动等待。"""
+    import time as _time
+
+    fake = FakeLLM(mode="echo")
+    waits: list[float] = []
+
+    class Clock:
+        now = 1000.0
+
+    def fake_sleep(seconds: float) -> None:
+        waits.append(round(seconds, 2))
+        Clock.now += seconds  # 时间随等待推进
+
+    gateway = Gateway(backend=fake, model_debater="d", model_official="o",
+                      min_interval=12.0, sleep=fake_sleep)
+    orig_monotonic = _time.monotonic
+    _time.monotonic = lambda: Clock.now
+    try:
+        gateway.complete([{"role": "user", "content": "a"}], tier="debater", temperature=0.5, max_tokens=8)
+        gateway.complete([{"role": "user", "content": "b"}], tier="debater", temperature=0.5, max_tokens=8)  # 间隔 0 → 应等待 12s
+        gateway.complete([{"role": "user", "content": "c"}], tier="debater", temperature=0.5, max_tokens=8)
+    finally:
+        _time.monotonic = orig_monotonic
+    assert waits == [12.0, 12.0]  # 每次紧邻调用都补足 12s

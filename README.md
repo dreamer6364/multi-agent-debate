@@ -8,7 +8,7 @@
 
 | 层 | 选型 |
 |---|---|
-| 引擎 | Python 3.11+ · LangGraph · OpenAI 兼容协议（GLM/DeepSeek/Kimi/OpenAI 可切换） |
+| 引擎 | Python 3.11+ · LangGraph · OpenAI 兼容协议（GLM/DeepSeek/Kimi/OpenAI 可切换） · RAG 证据检索（BM25） |
 | 后端 | FastAPI · SQLModel · MySQL 8（开发/测试可回落 SQLite） · SSE |
 | 前端 | React 18 + Vite + TypeScript + Ant Design 5 · zustand · TanStack Query |
 | 交付 | Docker Compose（backend + mysql + nginx） |

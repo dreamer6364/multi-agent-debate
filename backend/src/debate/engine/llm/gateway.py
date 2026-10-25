@@ -41,15 +41,28 @@ class Gateway:
     model_debater: str = "gpt-model"
     model_official: str = "gpt-model-lite"
     max_retries: int = 3
+    min_interval: float = 0.0  # 全局限速：相邻调用最小间隔秒（免费档 RPM 受限时配置，如 12）
     sleep: Callable[[float], None] = time.sleep
+    _last_call: float = field(default_factory=lambda: 0.0)
     extra_body: dict[str, Any] | None = None  # OpenAI 兼容透传（如 GLM thinking: disabled）
     usage: dict[str, int] = field(default_factory=lambda: {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0})
     _client: Any = None
+
+    def _throttle(self) -> None:
+        """全局限速（v1.4）：距上次调用不足 min_interval 则等待——免费档 RPM 保护。"""
+        if self.min_interval <= 0:
+            return
+        now = time.monotonic()
+        wait = self.min_interval - (now - self._last_call)
+        if wait > 0:
+            self.sleep(wait)
+        self._last_call = time.monotonic()
 
     def complete(
         self, messages: list[dict[str, str]], *, tier: str, temperature: float, max_tokens: int
     ) -> LLMResult:
         """tier ∈ debater/judge/chair/digest：辩手走主力模型，其余走廉价模型（ARCH D6）。"""
+        self._throttle()
         model = self.model_debater if tier == "debater" else self.model_official
         last_exc: Exception | None = None
         for attempt in range(self.max_retries + 1):
@@ -66,8 +79,16 @@ class Gateway:
             except Exception as exc:  # noqa: BLE001 —— 统一重试，最终以 LLMExhausted 出口
                 last_exc = exc
                 if attempt < self.max_retries:
-                    self.sleep(min(2**attempt, 8))
+                    self.sleep(self._backoff(attempt, exc))
         raise LLMExhausted(f"LLM 重试 {self.max_retries} 次后仍失败: {last_exc}") from last_exc
+
+    @staticmethod
+    def _backoff(attempt: int, exc: Exception) -> float:
+        """限流（429/RateLimit*）用长退避扛过按分钟计的限窗；其余指数退避。"""
+        name = type(exc).__name__
+        if "RateLimit" in name or "429" in str(exc):
+            return 45.0
+        return float(min(2**attempt, 8))
 
     def stream(
         self,
@@ -84,6 +105,7 @@ class Gateway:
         调用方据此向下游发"重置"信号（attempt 变化 → 前端清空该 seq 的累积文本）。
         usage 以估算口径统计（prompt 按字符估、completion 按累计字数）。
         """
+        self._throttle()
         model = self.model_debater if tier == "debater" else self.model_official
         last_exc: Exception | None = None
         for attempt in range(self.max_retries + 1):
@@ -110,7 +132,7 @@ class Gateway:
             except Exception as exc:  # noqa: BLE001 —— 与 complete 相同的重试出口
                 last_exc = exc
                 if attempt < self.max_retries:
-                    self.sleep(min(2**attempt, 8))
+                    self.sleep(self._backoff(attempt, exc))
         raise LLMExhausted(f"LLM 流式重试 {self.max_retries} 次后仍失败: {last_exc}") from last_exc
 
     def _stream_openai(

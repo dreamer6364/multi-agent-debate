@@ -10,8 +10,9 @@ from .agents.loader import AgentSpec, load_agents
 from .graph.builder import build_graph
 from .graph.state import initial_state
 from .llm.gateway import Gateway
+from .rag.retriever import EvidenceRetriever
 from .runtime import DebateAborted, DebateCancelled, DebateContext
-from .schema import DebateFormat, ScoreCard, Speech, Topic, Verdict
+from .schema import Camp, DebateFormat, ScoreCard, Speech, Topic, Verdict
 from .sim.digest import Digest
 
 
@@ -41,9 +42,20 @@ def run_debate(
 ) -> DebateResult:
     if agents is None:
         agents = load_agents(Path(assets_root) if assets_root else Path.cwd())
+
+    # RAG 预检索（v1.4）：双方各自按辩题+己方命题取 top_k 证据卡，全场环节复用
+    evidence: dict = {Camp.PRO: [], Camp.CON: []}
+    if config.rag.enabled:
+        root = Path(assets_root) if assets_root else Path.cwd()
+        retriever = EvidenceRetriever.from_dir(root / config.rag.knowledge_dir)
+        evidence = {
+            Camp.PRO: retriever.evidence_for(topic, Camp.PRO, top_k=config.rag.top_k),
+            Camp.CON: retriever.evidence_for(topic, Camp.CON, top_k=config.rag.top_k),
+        }
+
     ctx = DebateContext(
         config=config, topic=topic, agents=agents, gateway=gateway,
-        compressor=compressor, format=fmt, on_speech=on_speech, on_event=on_event, on_delta=on_delta,
+        compressor=compressor, format=fmt, evidence=evidence, on_speech=on_speech, on_event=on_event, on_delta=on_delta,
         cancel_check=cancel_check,
     )
     graph = build_graph(ctx, fmt)

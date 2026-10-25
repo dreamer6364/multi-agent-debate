@@ -36,6 +36,7 @@ class ModelConfig(BaseModel):
     temperature: TemperatureConfig = TemperatureConfig()
     max_retries: int = 3
     timeout_seconds: int = 60
+    min_call_interval: float = 12.0  # 全局限速秒（免费档 RPM 保护；0=不限）
 
 
 class ContextConfig(BaseModel):
@@ -64,6 +65,12 @@ class ConductConfig(BaseModel):
     max_interrupts_per_answer: int = 2
 
 
+class RagConfig(BaseModel):
+    enabled: bool = True
+    top_k: int = 3
+    knowledge_dir: str = "knowledge"
+
+
 class StreamConfig(BaseModel):
     enable_delta: bool = True  # speech_delta 流式直播（v2.1）
 
@@ -79,6 +86,7 @@ class AppConfig(BaseModel):
     judges: JudgesConfig = JudgesConfig()
     quota: QuotaConfig = QuotaConfig()
     conduct: ConductConfig = ConductConfig()
+    rag: RagConfig = RagConfig()
     stream: StreamConfig = StreamConfig()
     export: ExportConfig = ExportConfig()
 

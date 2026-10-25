@@ -9,7 +9,8 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from .llm.gateway import Gateway
-from .schema import DebateFormat, Speech, Topic
+from .rag.corpus import EvidenceCard
+from .schema import Camp, DebateFormat, Speech, Topic
 from .agents.loader import AgentSpec
 from ..core.config import AppConfig
 
@@ -30,6 +31,7 @@ class DebateContext:
     gateway: Gateway
     compressor: Callable[[list[Speech]], dict[str, str]]
     format: DebateFormat
+    evidence: dict[Camp, list[EvidenceCard]] = None  # RAG 预检索结果（v1.4；双方各自 top_k）
     on_speech: Callable[[Speech], None] | None = None
     on_event: Callable[[dict], None] | None = None
     on_delta: Callable[[int, str, int, str, str], None] | None = None  # (seq, delta, attempt, speaker, camp)；delta="" 表示 attempt 重置信号

@@ -56,13 +56,17 @@ def build_debater_messages(
     instruction: str,
     recent_k: int = 6,
     max_input_tokens: int | None = None,
+    evidence_text: str = "",
 ) -> list[dict[str, str]]:
-    """辩手调用消息。超 max_input_tokens 时按 ④最近原文 → ③digest → ②要点 裁剪。"""
+    """辩手调用消息（v1.4 六段注入：立场 → 证据参考 → 摘要 → 最近原文 → 任务）。
+    超预算裁剪顺序：④最近原文 → ③digest → ②要点 → ⑤证据（证据段最后裁）。"""
     recent = list(recent[-recent_k:]) if recent_k > 0 else []
 
-    def assemble(points: list[str], digest: str, recent_part: list[Speech]) -> list[dict[str, str]]:
-        blocks = [
-            _points_block(topic, spec.camp),
+    def assemble(points: list[str], digest: str, recent_part: list[Speech], ev: str) -> list[dict[str, str]]:
+        blocks = [_points_block(topic, spec.camp)]
+        if ev:
+            blocks.append(ev)
+        blocks += [
             f"【战局摘要】\n{digest}" if digest else "【战局摘要】\n（比赛刚开始）",
             _recent_block(recent_part),
             f"【本环节任务】\n{instruction}",
@@ -70,12 +74,13 @@ def build_debater_messages(
         return _assemble(spec.system_prompt, blocks)
 
     if max_input_tokens is None:
-        return assemble(_points_of(topic, spec.camp), digest_text, recent)
+        return assemble(_points_of(topic, spec.camp), digest_text, recent, evidence_text)
 
     current_points = list(_points_of(topic, spec.camp))
     current_digest = digest_text
     current_recent = recent
-    messages = assemble(current_points, current_digest, current_recent)
+    current_ev = evidence_text
+    messages = assemble(current_points, current_digest, current_recent, current_ev)
     guard = 0
     while _total_tokens(messages) > max_input_tokens and guard < 8:
         guard += 1
@@ -85,9 +90,11 @@ def build_debater_messages(
             current_digest = current_digest[: len(current_digest) // 2]  # 第二刀：压缩摘要
         elif len(current_points) > 1:
             current_points = current_points[:1]  # 第三刀：要点只留第一条
+        elif current_ev:
+            current_ev = ""  # 第四刀（v1.4）：证据段最后裁
         else:
             break
-        messages = assemble(current_points, current_digest, current_recent)
+        messages = assemble(current_points, current_digest, current_recent, current_ev)
     return messages
 
 
