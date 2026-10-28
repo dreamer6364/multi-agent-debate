@@ -146,10 +146,8 @@ def test_graph_snapshots_are_persisted_for_playback(tmp_path, monkeypatch):
             )).scalars().all()
             # 3 条发言 + 1 次环节结束 + 1 次宣判
             assert [r.version for r in rows] == [1, 2, 3, 4, 5]
-            assert rows[0].control.startswith("flowchart TD")
             assert rows[-1].argument.startswith("flowchart LR")
             assert rows[-1].payload_json["terminated"] is True
-            assert "终止" in rows[-1].control
             # 版本 1 的图里只有主席开场，版本 3 之后才长出双方论点——历史不是同一张图
             assert ":::neutral" in rows[0].argument
             assert ":::pro" not in rows[0].argument

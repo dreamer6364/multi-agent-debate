@@ -3,14 +3,14 @@
 覆盖：
   - 图随每条发言增长（节点/边/版本/回合号推进）
   - 关系语义：支持实线、攻击/质询虚线，首条发言不自连
-  - 控制图：裁判判断节点 + 三种分支（继续 / 追加质询 / 提前结束）+ 收敛终止
-  - 当前节点高亮、新增节点标记、已完成置灰（默认样式）
+  - v2.6.2：关系边标明来源发言人（谁指向谁）；中立角色是"主持"而非补充
+  - 当前节点高亮、新增节点标记（默认样式）
   - 标签转义：引号/竖线/井号/尖括号不破坏 mermaid 语法
 """
 from __future__ import annotations
 
 from debate.engine.graph.debate_state import GraphTracker
-from debate.engine.graph.mermaid import build_argument_mermaid, build_control_mermaid
+from debate.engine.graph.mermaid import build_argument_mermaid
 from debate.engine.schema import Camp, Speech
 
 
@@ -29,11 +29,8 @@ def feed_openings(t: GraphTracker) -> None:
 
 def test_empty_state_is_valid_and_minimal():
     t = tracker()
-    control = build_control_mermaid(t.state)
     argument = build_argument_mermaid(t.state)
-    assert control.startswith("flowchart TD")
     assert argument.startswith("flowchart LR")
-    assert "开赛" in control
     assert "人工智能时代" in argument
     # 还没发言时不该凭空长出论点节点
     assert 'n1["' not in argument
@@ -54,10 +51,10 @@ def test_graph_grows_with_each_speech():
     assert second["state"]["edge_count"] == first["state"]["edge_count"] + 1
     assert second["added_nodes"] == ["n2"]
 
-    # 论证图源码确实多了节点与连线
+    # 论证图源码确实多了节点与连线，且边标明"谁指向谁"
     arg = second["views"]["argument"]
     assert 'n2["' in arg
-    assert "n2 -.->|反驳| n1" in arg
+    assert "n2 -.->|反方一辩 反驳| n1" in arg
 
 
 def test_support_edge_is_solid_attack_is_dashed():
@@ -65,8 +62,8 @@ def test_support_edge_is_solid_attack_is_dashed():
     feed_openings(t)
     t.feed_speech(sp(3, 4, "驳论", "pro-2", Camp.PRO, "我方补充一点：工具从来都是人的延伸。"))
     arg = t.history[-1]["views"]["argument"]
-    assert "n3 -->|支持| n1" in arg   # 支持：实线
-    assert "n2 -.->|反驳| n1" in arg  # 攻击：虚线
+    assert "n3 -->|正方二辩 支持| n1" in arg   # 支持：实线
+    assert "n2 -.->|反方一辩 反驳| n1" in arg  # 攻击：虚线
 
 
 def test_question_phase_creates_query_edge():
@@ -77,36 +74,26 @@ def test_question_phase_creates_query_edge():
     node = t.state.nodes[-1].to_dict()
     assert node["kind"] == "question"
     assert any(e.kind == "query" for e in t.state.edges)
-    assert "-.->|质询|" in snap["views"]["argument"]
+    assert "-.->|反方二辩 质询|" in snap["views"]["argument"]
 
 
-def test_control_graph_has_judge_and_branch_nodes():
+def test_free_debate_edges_name_who_points_to_whom():
+    """自由辩论（phase 7）：每条交锋边都要写明来源发言人。"""
     t = tracker()
     feed_openings(t)
-    snap = t.feed_phase_end(2)
-    control = snap["views"]["control"]
-    assert "裁判判断" in control
-    assert "继续下一轮" in control
-    assert 'f{"' in control or '{"' in control  # 菱形判断节点
-    assert snap["branch"] == "next_round"
+    t.feed_speech(sp(3, 7, "自由辩论", "pro-2", Camp.PRO, "对方辩友忽略了成本，技术红利其实普惠。"))
+    t.feed_speech(sp(4, 7, "自由辩论", "con-2", Camp.CON, "普惠并不意味着没有代价，失业就是代价。"))
+    arg = t.history[-1]["views"]["argument"]
+    assert "n3 -.->|正方二辩 反驳| n2" in arg
+    assert "n4 -.->|反方二辩 反驳| n3" in arg
 
 
-def test_question_phase_end_branches_to_extra_query():
-    t = tracker()
-    feed_openings(t)
-    snap = t.feed_phase_end(3)
-    assert "追加质询" in snap["views"]["control"]
-    assert snap["branch"] == "extra_query"
-
-
-def test_verdict_converges_and_terminates():
+def test_verdict_marks_converged_and_terminated():
     t = tracker()
     feed_openings(t)
     snap = t.feed_verdict(winner="pro", rule="majority")
     assert snap["converged"] is True
     assert snap["terminated"] is True
-    assert "已收敛" in snap["views"]["control"]
-    assert "终止 · 正方胜" in snap["views"]["control"]
     assert snap["state"]["winner"] == "pro"
     assert snap["branch"] == "terminate"
 
@@ -116,9 +103,8 @@ def test_stopped_status_marks_early_finish():
     feed_openings(t)
     snap = t.feed_status("stopped")
     assert snap is not None and snap["terminated"] is True
-    assert "提前结束" in snap["views"]["control"]
     assert snap["branch"] == "early_finish"
-    # 已终止后不再重复补终止节点
+    # 已终止后不再重复补状态
     assert t.feed_status("failed") is None
 
 
@@ -128,8 +114,6 @@ def test_active_and_new_markers():
     arg = snap["views"]["argument"]
     assert f"class {snap['active_node']} active" in arg
     assert f"class {snap['active_node']} new" in arg
-    control = snap["views"]["control"]
-    assert f"class {snap['active']} active" in control
 
 
 def test_round_advances_when_both_sides_have_spoken():
@@ -165,7 +149,7 @@ def test_state_shape_matches_requirement():
     feed_openings(t)
     state = t.history[-1]["state"]
     for key in ("round", "pro_agent", "con_agent", "moderator", "current_claim",
-                "converged", "terminated", "branch", "node_count", "edge_count", "flow_count"):
+                "converged", "terminated", "branch", "node_count", "edge_count"):
         assert key in state
     assert state["pro_agent"] == "pro-1"
     assert state["con_agent"] == "con-1"
@@ -184,37 +168,15 @@ def test_history_kept_for_playback():
     assert t.history[0]["views"]["argument"] != t.history[1]["views"]["argument"]
 
 
-def test_terminate_stays_last_after_closing_ceremony():
-    """宣判后还有主席致辞：终止节点必须仍是控制图最后一个节点，且是唯一高亮项。
-
-    此前收尾环节直接 append，终止被夹在中间，看起来像"比赛结束了还在调度"。
-    """
-    t = tracker()
-    feed_openings(t)
-    t.feed_phase_end(2)
-    t.feed_phase_start(10, "宣判闭幕")
-    t.feed_verdict(winner="pro", rule="majority")
-    t.feed_phase_start(11, "主席致辞")
-    t.feed_speech(sp(3, 11, "主席致辞", "chair", Camp.NEUTRAL, "感谢双方，本场到此结束。"))
-    snap = t.feed_phase_end(11)
-
-    kinds = [f.kind for f in t.state.flow]
-    assert kinds[-1] == "terminate", kinds
-    active = [f.kind for f in t.state.flow if f.state == "active"]
-    assert active == ["terminate"], active
-    control = snap["views"]["control"]
-    assert "主席致辞" in control and "终止" in control
-    # 终止出现在致辞之后的那一段文字里，顺序不能反
-    assert control.index("主席致辞") < control.index("终止")
-
-
 def test_closing_ceremony_is_chair_not_rebuttal():
-    """中立角色不该被标成"补充/反驳"：主席致辞是主持，不是支持某个论点。"""
+    """中立角色不该被标成"补充/反驳"：主席致辞是主持，时序边标发言人名。"""
     t = tracker()
     feed_openings(t)
     t.feed_phase_start(11, "主席致辞")
     snap = t.feed_speech(sp(3, 11, "主席致辞", "chair", Camp.NEUTRAL, "感谢双方，本场到此结束。"))
     node = t.state.nodes[-1]
     assert node.kind == "neutral"
-    assert "主持" in snap["views"]["control"]
-    assert "补充" not in snap["views"]["control"]
+    arg = snap["views"]["argument"]
+    assert "主持 · 主席" in arg
+    assert "n3 -->|主席| n2" in arg  # 中立时序边挂发言人名
+    assert "补充" not in arg

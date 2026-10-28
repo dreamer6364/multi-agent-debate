@@ -4,16 +4,14 @@ import type { GraphSnapshot } from "../api/types";
 import { MermaidCanvas } from "./MermaidCanvas";
 
 /**
- * 辩论动态图面板（v2.5）
+ * 辩论动态图面板（v2.6.2）
  *
- * 两套视图各回答一个问题：
- *   工作流控制图 —— Agent 被怎么调度（发言 → 裁判判断 → 继续/追加质询/提前结束）
- *   论证关系图   —— 论点怎么长出来（新主张成节点，反驳/质询成虚线，支持成实线）
+ * 只保留一张**论证关系图**：论点怎么长出来（新主张成节点，反驳/质询成虚线，支持成实线），
+ * 每条关系边都标明来源发言人——自由辩论的交锋也能看清"谁指向谁"。
+ * （v2.5 的工作流控制图已按需求删除。）
  *
  * 图本身**不在这里拼**：源码由后端按辩论状态现场生成，本组件只负责选版本、渲染与标注变更。
  */
-
-type ViewKey = "control" | "argument";
 
 const BRANCH_CN: Record<string, string> = {
   next_round: "继续下一轮",
@@ -40,7 +38,6 @@ export interface DebateGraphPanelProps {
 }
 
 export function DebateGraphPanel({ graph, history, status }: DebateGraphPanelProps) {
-  const [view, setView] = useState<ViewKey>("control");
   // null = 跟随最新一版；数字 = 正在回看的历史版本下标
   const [cursor, setCursor] = useState<number | null>(null);
 
@@ -72,10 +69,10 @@ export function DebateGraphPanel({ graph, history, status }: DebateGraphPanelPro
   if (!current) {
     return (
       <div className="dg-empty" data-testid="debate-graph-empty">
-        <p className="dg-empty-title">🗺 辩论图随辩论自动生长</p>
+        <p className="dg-empty-title">🗺 论证图随辩论自动生长</p>
         <p className="dg-empty-sub">
           {status === "pending"
-            ? "比赛尚未开始。开赛后，每条发言都会为论证图添一个节点、为控制图添一步调度。"
+            ? "比赛尚未开始。开赛后，每条发言都会为论证图添一个节点、添一条标明「谁指向谁」的关系边。"
             : "正在等待第一条发言……图由后端按当前辩论状态现场生成，不是预置的固定流程图。"}
         </p>
       </div>
@@ -104,23 +101,7 @@ export function DebateGraphPanel({ graph, history, status }: DebateGraphPanelPro
       </div>
 
       <div className="dg-bar">
-        <div className="dg-views" role="tablist">
-          <button
-            type="button" role="tab" aria-selected={view === "control"}
-            className={`dg-view ${view === "control" ? "on" : ""}`}
-            onClick={() => setView("control")}
-          >
-            工作流控制图
-          </button>
-          <button
-            type="button" role="tab" aria-selected={view === "argument"}
-            className={`dg-view ${view === "argument" ? "on" : ""}`}
-            onClick={() => setView("argument")}
-          >
-            论证关系图
-          </button>
-        </div>
-
+        <span className="dg-view on">论证关系图</span>
         <div className="dg-delta" data-testid="dg-delta">
           {changes.nodes > 0 && <span className="dg-new">+{changes.nodes} 节点</span>}
           {changes.attacks > 0 && <span className="dg-atk">+{changes.attacks} 攻击边</span>}
@@ -133,9 +114,9 @@ export function DebateGraphPanel({ graph, history, status }: DebateGraphPanelPro
       </div>
 
       <MermaidCanvas
-        code={current.views[view]}
-        version={`${current.version}-${view}`}
-        height={view === "control" ? 540 : 480}
+        code={current.views.argument ?? current.views.control ?? ""}
+        version={current.version}
+        height={520}
         testId="dg-canvas"
         emptyHint="该版本没有图内容"
       />
@@ -169,9 +150,10 @@ export function DebateGraphPanel({ graph, history, status }: DebateGraphPanelPro
       </div>
 
       <p className="dg-note">
-        节点、连线、高亮全部由后端依据当前辩论状态实时生成：实线＝支持，虚线＝反驳/质询；
+        节点、连线、高亮全部由后端依据当前辩论状态实时生成：实线＝支持，虚线＝反驳/质询，
+        每条边都标明来源发言人（如「反方二辩 反驳」），一眼看清谁指向谁；
         当前活跃节点描边加粗，走完的节点置灰，本轮新增节点描金边。
-        图比画布宽时可拖动画布平移，Ctrl／⌘ + 滚轮缩放，右侧「适应」回到按宽度铺满。
+        图比画布宽时可拖动画布平移，Ctrl／⌘ + 滚轮缩放，「适应」回到按宽度铺满。
       </p>
     </div>
   );

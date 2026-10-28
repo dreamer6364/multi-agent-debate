@@ -1,7 +1,15 @@
-"""LLM 网关单测：重试次数、耗尽异常、用量统计（TEST_PLAN FT-LLM 前置，SPEC §7）。"""
+"""LLM 网关单测：重试次数、耗尽异常、用量统计（TEST_PLAN FT-LLM 前置，SPEC §7）。
+v2.6.2：文本型工具调用（伪 XML 混进正文）的解析、剥离与流式压制。
+"""
 import pytest
 
-from debate.engine.llm.gateway import Gateway, LLMExhausted
+from debate.engine.llm.gateway import (
+    Gateway,
+    LLMExhausted,
+    _StreamToolFilter,
+    parse_text_tool_calls,
+    strip_tool_artifacts,
+)
 from tests.fakes.llm import FakeLLM
 
 MSG = [{"role": "user", "content": "{repeat:7}"}]
@@ -155,3 +163,112 @@ def test_gateway_throttles_by_min_interval():
     finally:
         _time.monotonic = orig_monotonic
     assert waits == [12.0, 12.0]  # 每次紧邻调用都补足 12s
+
+
+# ---- v2.6.2 文本型工具调用：解析 / 剥离 / 原生循环回注 / 流式压制 ----
+
+BUG_SHAPE = (
+    "<tool_call>\nsearch_evidence\n<arg_key>query</arg_key>\n"
+    "<arg_value>亲密关系 相互性 满意度</arg_value>\n</tool_call>"
+)
+
+
+def test_parse_text_tool_calls_xml_pair_form():
+    parsed = parse_text_tool_calls(BUG_SHAPE)
+    assert parsed == [("search_evidence", {"query": "亲密关系 相互性 满意度"})]
+
+
+def test_parse_text_tool_calls_json_form():
+    text = '<tool_call>\n{"name": "search_web", "arguments": {"query": "AI"}}\n</tool_call>'
+    assert parse_text_tool_calls(text) == [("search_web", {"query": "AI"})]
+
+
+def test_parse_text_tool_calls_none_when_clean():
+    assert parse_text_tool_calls("我方认为技术是人的延伸。") is None
+
+
+def test_strip_tool_artifacts_removes_leak():
+    assert strip_tool_artifacts(BUG_SHAPE) == ""
+    leaked = f"search_evidence\n<arg_key>query</arg_key>\n<arg_value>测试</arg_value>\n</tool_call>"
+    assert strip_tool_artifacts(leaked) == ""
+    mixed = "我方认为技术是人的延伸。\n" + BUG_SHAPE
+    assert strip_tool_artifacts(mixed) == "我方认为技术是人的延伸。"
+
+
+class _Msg:
+    def __init__(self, content=None, tool_calls=None):
+        self.content = content
+        self.tool_calls = tool_calls
+
+
+class _FakeOpenAIClient:
+    """最小 OpenAI 客户端替身：按序返回预置响应，记录调用参数。"""
+
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls: list[dict] = []
+
+        class _API:
+            completions = self
+
+        self.chat = _API()
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        message = self._responses.pop(0)
+
+        class _Resp:
+            usage = None
+
+            def __init__(self, message):
+                self.choices = [type("C", (), {"message": message})()]
+
+        return _Resp(message)
+
+
+def test_chat_with_tools_executes_text_form_tool_call():
+    """截图 bug 回归：正文里的伪 XML 调用必须被执行回注，而不是当发言泄漏。"""
+    client = _FakeOpenAIClient(
+        [_Msg(content=BUG_SHAPE), _Msg(content="我方认为亲密关系中的相互性决定满意度。")]
+    )
+    gateway = Gateway(backend=None, model_debater="d", model_official="o")
+    gateway._client = client
+    executed: list[tuple[str, dict]] = []
+    result = gateway.chat_with_tools(
+        [{"role": "user", "content": "发言"}],
+        tools=[{"type": "function", "function": {"name": "search_evidence", "parameters": {}}}],
+        execute=lambda name, args: (executed.append((name, args)), "找到 3 条证据")[1],
+        tier="debater", temperature=0.5, max_tokens=256,
+    )
+    assert executed == [("search_evidence", {"query": "亲密关系 相互性 满意度"})]
+    assert result.text == "我方认为亲密关系中的相互性决定满意度。"
+    # 回注的对话是协议合法的：assistant.tool_calls + role=tool 成对出现
+    convo = client.calls[1]["messages"]
+    assert any(m.get("tool_calls") for m in convo)
+    assert any(m.get("role") == "tool" for m in convo)
+
+
+def test_complete_strips_tool_artifacts_from_backend():
+    class Leaky:
+        def complete(self, messages, **kwargs):
+            return BUG_SHAPE
+
+    gateway = Gateway(backend=Leaky(), model_debater="d", model_official="o")
+    assert gateway.complete(MSG, tier="debater", temperature=0.5, max_tokens=64).text == ""
+
+
+def test_stream_suppresses_tool_call_region():
+    """流式路径：工具调用区域跨 chunk 出现也必须整体压制，正文照常透传。"""
+    pieces = ["我方认为", "<tool", "_call>\nsearch_evidence\n<arg_key>query</arg", "_key>\n"
+              "<arg_value>测试</arg_value>\n</tool_call>", "技术是延伸", "。"]
+    backend = type("B", (), {"complete": staticmethod(lambda *a, **k: ""), "stream": staticmethod(lambda *a, **k: iter(pieces))})()
+    gateway = Gateway(backend=backend, model_debater="d", model_official="o")
+    chunks = list(gateway.stream(MSG, tier="debater", temperature=0.5, max_tokens=64))
+    assert "".join(chunks) == "我方认为技术是延伸。"
+
+
+def test_stream_tool_filter_chunk_boundaries():
+    flt = _StreamToolFilter()
+    out = flt.feed("前文<tool") + flt.feed("_call>垃圾内") + flt.feed("容</tool_call>后文")
+    out += flt.flush()
+    assert out == "前文后文"

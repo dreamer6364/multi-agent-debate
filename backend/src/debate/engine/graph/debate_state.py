@@ -1,6 +1,6 @@
 """辩论图状态（DebateGraphState）与演进追踪器。
 
-设计约束（本次需求的核心）：**不写死任何一张固定流程图**。
+设计约束（核心需求）：**不写死任何一张固定流程图**。
 辩论每推进一步（一条 Agent 发言 / 一次裁判判断），本模块把这一步"吸收"进状态：
 新增论点节点、判定它与既有论点的支持/攻击关系、推进回合号、记录分支决策；
 随后由 ``mermaid.py`` 依据状态现场生成图源码，前端替换渲染。
@@ -33,12 +33,6 @@ QUESTION_HINTS = ("？", "?", "请问", "是否", "为什么", "如何", "难道
 
 #: 质询 / 攻辩环节：发言天然是"问"，关系边按 query 处理
 QUESTION_PHASES = (3, 5)
-
-#: 环节阶段的角色归类（供控制图着色与判断节点措辞）
-PHASE_ROLE = {
-    1: "开场", 2: "立论", 3: "质询", 4: "驳论", 5: "攻辩",
-    6: "小结", 7: "自由辩", 8: "结辩", 9: "评审", 10: "宣判", 11: "致辞",
-}
 
 _LABEL_MAX = 16
 _CJK = re.compile(r"[\u3000-\u9fff\uff00-\uffef]")
@@ -93,35 +87,20 @@ class GraphNode:
 
 @dataclass
 class GraphEdge:
-    """论点之间的关系：support 实线 / attack 虚线 / query 虚线带问号。"""
+    """论点之间的关系：support 实线 / attack 虚线 / query 虚线带问号。
+
+    label 自带来源发言人（如「反方二辩 反驳」），图上明确"谁指向谁"。
+    """
 
     id: str
     src: str
     dst: str
-    kind: str  # support | attack | query
+    kind: str  # support | attack | query | flow
     label: str
 
     def to_dict(self) -> dict:
         return {"id": self.id, "src": self.src, "dst": self.dst,
                 "kind": self.kind, "label": self.label}
-
-
-@dataclass
-class FlowStep:
-    """工作流控制图里的一个调度步骤。"""
-
-    id: str
-    kind: str  # start | speech | judge | branch | converge | terminate
-    label: str
-    detail: str
-    round: int
-    camp: str
-    state: str = "done"  # done | active
-
-    def to_dict(self) -> dict:
-        return {"id": self.id, "kind": self.kind, "label": self.label,
-                "detail": self.detail, "round": self.round,
-                "camp": self.camp, "state": self.state}
 
 
 @dataclass
@@ -142,7 +121,6 @@ class DebateGraphState:
     winner: str | None = None
     nodes: list[GraphNode] = field(default_factory=list)
     edges: list[GraphEdge] = field(default_factory=list)
-    flow: list[FlowStep] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -154,7 +132,6 @@ class DebateGraphState:
             "branch": self.branch, "winner": self.winner,
             "nodes": [n.to_dict() for n in self.nodes],
             "edges": [e.to_dict() for e in self.edges],
-            "flow": [f.to_dict() for f in self.flow],
         }
 
     def summary(self) -> dict:
@@ -167,7 +144,6 @@ class DebateGraphState:
             "converged": self.converged, "terminated": self.terminated,
             "branch": self.branch, "winner": self.winner,
             "node_count": len(self.nodes), "edge_count": len(self.edges),
-            "flow_count": len(self.flow),
         }
 
 
@@ -186,50 +162,15 @@ class GraphTracker:
         self.version = 0
         self.history: list[dict] = []
         self._seq = 0
-        self._node_of_seq: dict[int, str] = {}
         self._last_camp: str | None = None
         self._round_camps: set[str] = set()
         self._last_node_by_camp: dict[str, str] = {}
-        self._flow_seq = 0
-        self._added_flow: list[str] = []
-        self._phase_step: FlowStep | None = None  # 控制图里当前环节节点（发言只更新它）
-        self.state.flow.append(FlowStep(
-            id="start", kind="start", label="开赛", detail="多 Agent 辩论", round=0, camp="neutral",
-        ))
-        self._current = "start"
 
     # ---------- 内部：id 分配与连线 ----------
 
     def _nid(self) -> str:
         self._seq += 1
         return f"n{self._seq}"
-
-    def _fid(self) -> str:
-        self._flow_seq += 1
-        return f"f{self._flow_seq}"
-
-    def _push_flow(self, step: FlowStep) -> None:
-        """控制图是线性推进的：前一步 done 后接新步，新步为 active。
-
-        宣判之后还有「主席致辞」这类收尾环节，它们必须排在收敛/终止**之前**，
-        否则终止节点会被夹在中间，读起来像"比赛已经结束了还在继续调度"。
-        """
-        for old in self.state.flow:
-            if old.state == "active":
-                old.state = "done"
-        step.state = "active"
-        tail = None
-        if step.kind not in ("converge", "terminate"):
-            tail = next(
-                (i for i, f in enumerate(self.state.flow) if f.kind in ("converge", "terminate")),
-                None,
-            )
-        if tail is None:
-            self.state.flow.append(step)
-        else:
-            self.state.flow.insert(tail, step)
-        self._added_flow.append(step.id)
-        self._current = step.id
 
     def _last_node(self, camp: str) -> str | None:
         return self._last_node_by_camp.get(camp)
@@ -267,11 +208,13 @@ class GraphTracker:
         目标必须取自"本条之前"的节点——先登记本条再连线会让首条发言自己指向自己。
         主席/评委这类中立发言没有攻防对象，改按时间顺序接到上一条（flow 边），
         否则它们会变成图里漂浮的孤立节点。
+        边标签统一带来源发言人（如「反方二辩 反驳」），自由辩论交锋再密集也能看清谁指向谁。
         """
         edges: list[GraphEdge] = []
+        speaker = speaker_cn(speech.speaker)
         if speech.camp is Camp.NEUTRAL:
             if prev_any:
-                edges.append(GraphEdge(f"e{len(self.state.edges) + 1}", node.id, prev_any, "flow", ""))
+                edges.append(GraphEdge(f"e{len(self.state.edges) + 1}", node.id, prev_any, "flow", speaker))
             return edges
         if node.kind == "question":
             target = prev_opp or prev_own
@@ -282,14 +225,14 @@ class GraphTracker:
         if not target:
             return edges
         kind = {"question": "query", "support": "support"}.get(node.kind, "attack")
-        label = {"query": "质询", "support": "支持"}.get(kind, "反驳")
-        edges.append(GraphEdge(f"e{len(self.state.edges) + 1}", node.id, target, kind, label))
+        base = {"query": "质询", "support": "支持"}.get(kind, "反驳")
+        edges.append(GraphEdge(f"e{len(self.state.edges) + 1}", node.id, target, kind, f"{speaker} {base}"))
         return edges
 
     # ---------- 对外：状态推进 ----------
 
     def feed_speech(self, speech: Speech) -> dict:
-        """吸收一条发言：新论点节点 + 攻防连线 + 回合推进 + 控制图新步骤。"""
+        """吸收一条发言：新论点节点 + 攻防连线 + 回合推进。"""
         camp = speech.camp.value
         added_nodes: list[str] = []
         added_edges: list[str] = []
@@ -315,31 +258,11 @@ class GraphTracker:
         )
         self.state.nodes.append(node)
         added_nodes.append(node.id)
-        self._node_of_seq[speech.seq] = node.id
         self._last_node_by_camp[camp] = node.id
 
         for edge in self._connect(node, speech, prev_own, prev_opp, prev_any):
             self.state.edges.append(edge)
             added_edges.append(edge.id)
-
-        # 控制图按"环节"聚合：环节节点在 phase_start 建好，这里只更新它的实时状态。
-        # 每条发言都单独成节点会让控制图长到几十屏、读不出调度结构——发言的粒度属于论证图。
-        step = self._phase_step
-        if step is None:
-            step = FlowStep(id=self._fid(), kind="speech", label=speech.phase_name,
-                            detail="", round=self.state.round, camp="neutral")
-            self._push_flow(step)
-            self._phase_step = step
-        count = sum(1 for n in self.state.nodes if n.phase == speech.phase)
-        # 节点文案只保留"环节名 + 角色/发言人/条数"两行：控制图一屏要能看清调度结构，
-        # 写满"立论 · 开篇立论"这种重复信息只会把节点撑高、挤掉后面的环节。
-        step.label = speech.phase_name
-        parts = [PHASE_ROLE.get(speech.phase, ""),
-                 speaker_cn(speech.speaker) if note == PHASE_ROLE.get(speech.phase) else f"{speaker_cn(speech.speaker)} {note}",
-                 f"{count} 条"]
-        step.detail = " · ".join(p for p in parts if p)
-        step.round = self.state.round
-        step.camp = camp
 
         self.state.current_claim = label
         self.state.phase = speech.phase
@@ -362,23 +285,13 @@ class GraphTracker:
         self._round_camps = set()
 
     def feed_phase_start(self, phase: int, name: str, actors: list[str] | None = None) -> dict:
-        """环节开始＝控制图上新增一个环节节点（此后该环节的发言只更新它的计数）。"""
+        """环节开始＝状态推进到新环节（actor 信息保留在 state 里供前端展示）。"""
         self.state.phase = phase
         self.state.phase_name = name
-        step = FlowStep(
-            id=self._fid(), kind="speech", label=name,
-            detail="等待发言", round=self.state.round, camp="neutral",
-        )
-        self._push_flow(step)
-        self._phase_step = step
         return self._snapshot([], [])
 
     def feed_phase_end(self, phase: int) -> dict:
-        """环节结束＝一次裁判调度判断（继续下一环节 / 追加质询 / 进入宣判）。
-
-        判断与分支合并在同一个菱形节点里：拆成两个节点会让控制图翻倍，而分支本身只是
-        这次判断的结论，写在副行比单开一个节点更好读。
-        """
+        """环节结束＝一次裁判调度判断（继续下一环节 / 追加质询 / 进入宣判）。"""
         if phase in QUESTION_PHASES:
             branch, label = "extra_query", "追加质询"
         elif phase == 10:
@@ -388,49 +301,24 @@ class GraphTracker:
         else:
             branch, label = "next_round", "继续下一轮"
         self.state.branch = branch
-        self._push_flow(FlowStep(
-            id=self._fid(), kind="judge", label="裁判判断",
-            detail=f"→ {label}",
-            round=self.state.round, camp="neutral",
-        ))
-        self._phase_step = None
         return self._snapshot([], [])
 
     def feed_verdict(self, *, winner: str | None = None, rule: str = "") -> dict:
-        """宣判：收敛 + 终止，控制图收束到终止节点。"""
+        """宣判：收敛 + 终止。"""
         self.state.converged = True
         self.state.terminated = True
         self.state.winner = winner
         self.state.branch = "terminate"
-        rule_cn = {
-            "majority": "评委多数票", "team_total": "团体总分",
-            "best_speaker": "最佳辩手", "final_judge": "评议长终裁",
-            "unresolved": "未分胜负",
-        }.get(rule, rule or "宣判")
-        self._push_flow(FlowStep(
-            id=self._fid(), kind="converge", label="已收敛",
-            detail=rule_cn, round=self.state.round, camp="neutral",
-        ))
-        winner_cn = {"pro": "正方胜", "con": "反方胜"}.get(winner or "", "平局")
-        self._push_flow(FlowStep(
-            id=self._fid(), kind="terminate", label=f"终止 · {winner_cn}",
-            detail=rule_cn, round=self.state.round, camp="neutral",
-        ))
         return self._snapshot([], [])
 
     def feed_status(self, status: str, error: str | None = None) -> dict | None:
-        """异常/中止收尾：补一个终止节点，保证控制图有明确出口。"""
+        """异常/中止收尾：标记终止，保证状态有明确出口。"""
         if status not in ("failed", "stopped"):
             return None
         if self.state.terminated:
             return None
         self.state.terminated = True
         self.state.branch = "early_finish"
-        label = "提前结束" if status == "stopped" else "异常终止"
-        self._push_flow(FlowStep(
-            id=self._fid(), kind="terminate", label=label,
-            detail=(error or "比赛提前结束")[:60], round=self.state.round, camp="neutral",
-        ))
         return self._snapshot([], [])
 
     # ---------- 快照 ----------
@@ -438,29 +326,17 @@ class GraphTracker:
     def _snapshot(self, added_nodes: list[str], added_edges: list[str]) -> dict:
         from .mermaid import build_views
 
-        added_flow = list(self._added_flow)
-        self._added_flow.clear()
-        # 收尾环节排在终止节点之前，因此"活跃步骤"与"最后一个节点"会错位：
-        # 一旦终止，统一把高亮交还给终止节点，图上才是"比赛已结束"而不是"还在调度"。
-        if self.state.terminated:
-            for step in self.state.flow:
-                step.state = "active" if step.kind == "terminate" else "done"
-            term = next((f for f in self.state.flow if f.kind == "terminate"), None)
-            if term is not None:
-                self._current = term.id
         self.version += 1
         payload = {
             "version": self.version,
             "round": self.state.round,
             "state": self.state.summary(),
-            "views": build_views(self.state, added_nodes=added_nodes, added_flow=added_flow),
-            "active": self._current,
+            "views": build_views(self.state, added_nodes=added_nodes),
             "active_node": self.state.nodes[-1].id if self.state.nodes else None,
             "added_nodes": list(added_nodes),
             "added_edges": list(added_edges),
             # 前端只在画布上标注"新增攻击边/支持边"，需要边类型而不只是 id
             "added_edge_kinds": [e.kind for e in self.state.edges if e.id in set(added_edges)],
-            "added_flow": added_flow,
             "converged": self.state.converged,
             "terminated": self.state.terminated,
             "branch": self.state.branch,

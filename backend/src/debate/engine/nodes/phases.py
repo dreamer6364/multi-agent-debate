@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from ..agents.context import build_debater_messages, estimate_tokens
 from ..rag.retriever import detect_topic_domain, render_evidence
-from ..llm.gateway import LLMExhausted, LLMResult
+from ..llm.gateway import LLMExhausted, LLMResult, strip_tool_artifacts
 from ..procedure import PHASE_NAMES, PHASE_NUMBERS, minutes_for
 from ..runtime import DebateAborted, DebateCancelled, DebateContext
 from ..schema import Camp, Speech
@@ -264,6 +264,7 @@ def _ask(
                 chunks.append(chunk)
                 ctx.on_delta(seq, chunk, holder["attempt"], speaker, spec.camp.value)
             raw_text = "".join(chunks)
+            raw_text = strip_tool_artifacts(raw_text)  # 双保险：流式增量已过滤，终稿再剥一次
             prompt_tokens = sum(estimate_tokens(m.get("content", "")) for m in messages)
             result = LLMResult(text=raw_text, prompt_tokens=prompt_tokens,
                                completion_tokens=len(raw_text))

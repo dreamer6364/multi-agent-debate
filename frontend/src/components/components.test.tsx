@@ -294,13 +294,10 @@ const snap = (version: number, round: number, over: Partial<GraphSnapshot> = {})
     winner: null,
     node_count: round * 2,
     edge_count: round,
-    flow_count: round * 2 + 1,
   },
   views: {
-    control: "flowchart TD\n  s([\"开赛\"]):::start",
     argument: "flowchart LR\n  T([\"辩题\"]):::topic",
   },
-  active: `f${version}`,
   active_node: `n${version}`,
   added_nodes: [`n${version}`],
   added_edges: [`e${version}`],
@@ -336,14 +333,12 @@ describe("DebateGraphPanel（v2.5 动态辩论图）", () => {
     cleanup();
   });
 
-  it("FE-CMP-12 双视图切换，历史可回看上一版再回到最新", () => {
+  it("FE-CMP-12 单一论证图视图，历史可回看上一版再回到最新", () => {
     const history = [snap(1, 1), snap(2, 1), snap(3, 2)];
     const { container } = render(<DebateGraphPanel graph={snap(3, 2)} history={history} status="running" />);
-    const tabs = container.querySelectorAll("[role='tab']");
-    expect(tabs.length).toBe(2);
-    expect(tabs[0].getAttribute("aria-selected")).toBe("true"); // 默认工作流控制图
-    fireEvent.click(tabs[1]);
-    expect(tabs[1].getAttribute("aria-selected")).toBe("true");
+    // v2.6.2：工作流控制图已删除，只保留论证关系图（不再有视图 Tab）
+    expect(container.querySelectorAll("[role='tab']").length).toBe(0);
+    expect(container.textContent).toContain("论证关系图");
 
     expect(container.querySelector("[data-testid='dg-history']")?.textContent).toContain("第 3/3 版");
     fireEvent.click(screen.getByText("◀ 上一版"));
@@ -377,8 +372,8 @@ describe("MermaidCanvas", () => {
     expect(empty.container.querySelector("[data-testid='mermaid-canvas-empty']")).toBeTruthy();
     cleanup();
 
-    render(<MermaidCanvas code={"flowchart TD\n  a-->b"} version="1" />);
-    await waitFor(() => expect(screen.getByText("控制图")).toBeTruthy());
+    render(<MermaidCanvas code={"flowchart LR\n  T([\"辩题\"])\n  T --> n1"} version="1" />);
+    await waitFor(() => expect(screen.getByText("论证图")).toBeTruthy());
     fireEvent.click(screen.getByTitle("放大"));
     expect(screen.getByText(/缩放 118%/)).toBeTruthy();
     fireEvent.click(screen.getByTitle("复位"));

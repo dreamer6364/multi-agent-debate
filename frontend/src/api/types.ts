@@ -162,7 +162,6 @@ export interface GraphState {
   winner: "pro" | "con" | null;
   node_count: number;
   edge_count: number;
-  flow_count: number;
 }
 
 /** 一轮图快照（SSE graph 事件 / GET /debates/{id}/graphs 同构） */
@@ -170,15 +169,13 @@ export interface GraphSnapshot {
   version: number;
   round: number;
   state: GraphState;
-  /** 两种视图的 mermaid 源码，由后端按当时状态现场生成 */
-  views: { control: string; argument: string };
-  active: string;
+  /** 论证关系图的 mermaid 源码，由后端按当时状态现场生成（control 为 v2.6 前的遗留字段，只读旧归档时可能出现） */
+  views: { argument: string; control?: string };
   active_node: string | null;
   added_nodes: string[];
   added_edges: string[];
   /** 本轮新增边的类型（attack/support/query），用于标注"新增攻击边" */
   added_edge_kinds?: string[];
-  added_flow?: string[];
   converged: boolean;
   terminated: boolean;
   branch: string;

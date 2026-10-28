@@ -92,10 +92,10 @@ describe("debateStore 动态图（v2.5）", () => {
       topic: "辩题", round: version, pro_agent: "pro-1", con_agent: "con-1",
       moderator: "chair", current_claim: "主张", phase: 2, phase_name: "开篇立论",
       converged: false, terminated: false, branch: "next_round", winner: null as null,
-      node_count: version, edge_count: version - 1, flow_count: version,
+      node_count: version, edge_count: version - 1,
     },
-    views: { control: `flowchart TD\n  a${version}`, argument: `flowchart LR\n  b${version}` },
-    active: `f${version}`, active_node: `n${version}`,
+    views: { argument: `flowchart LR\n  b${version}` },
+    active_node: `n${version}`,
     added_nodes: [`n${version}`], added_edges: [], added_edge_kinds: [],
     converged: false, terminated: false, branch: "next_round",
   });

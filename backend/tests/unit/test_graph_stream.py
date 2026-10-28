@@ -64,13 +64,11 @@ def test_graph_events_grow_with_debate(assets_root, backend_root, lite_config):
     assert counts[0] == 0
     assert counts[-1] == len(speeches), "每条发言恰好长出一个论点节点"
 
-    # 两种视图语法头正确
-    assert all(g["views"]["control"].startswith("flowchart TD") for g in graphs)
+    # 论证图语法头正确
     assert all(g["views"]["argument"].startswith("flowchart LR") for g in graphs)
 
     last = graphs[-1]
     assert last["terminated"] is True and last["converged"] is True
-    assert "终止" in last["views"]["control"]
 
     # 引擎结果带回完整历史（终态落库与归档回看用）
     assert len(result.graph_snapshots) == len(graphs)
