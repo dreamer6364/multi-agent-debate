@@ -755,6 +755,17 @@ a.neu-btn-accent.hero-btn { color: #fff; }
   background: var(--accent); animation: wf-blink 1.4s ease-in-out infinite;
 }
 .wf-bar { display: flex; gap: 4px; margin-left: auto; align-items: center; }
+/* 终态胜方徽标：点击跳「评委打分」看判决依据 */
+.wf-winner {
+  border: 0; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 800;
+  padding: 4px 12px; border-radius: 999px; color: #fff; letter-spacing: 0.3px;
+  background: #4a3db8;
+  box-shadow: 2px 2px 5px var(--neu-dark), -2px -2px 5px var(--neu-light);
+  transition: transform 0.15s ease;
+}
+.wf-winner:hover { transform: translateY(-1px); }
+.wf-winner.con { background: #c23a3a; }
+.wf-winner.draw { background: #6b7688; }
 .wf-seg { width: 18px; height: 6px; border-radius: 3px; background: var(--neu-dark); opacity: 0.45; }
 .wf-seg.done { background: var(--accent); opacity: 0.55; }
 .wf-seg.active { background: var(--accent); opacity: 1; animation: wf-blink 1.8s ease-in-out infinite; }

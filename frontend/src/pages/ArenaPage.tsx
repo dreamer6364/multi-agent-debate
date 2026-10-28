@@ -232,6 +232,8 @@ export default function ArenaPage() {
               : null
           }
           onSelectPhase={jumpToPhase}
+          winner={verdict ? verdict.winner : undefined}
+          onSelectVerdict={() => setActiveTab("judge")}
         />
       ),
     },

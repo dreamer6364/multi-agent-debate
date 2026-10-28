@@ -138,7 +138,9 @@ export function WorkflowGraph({
   streamingCamp,
   streamingSpeaker,
   judgingNote,
+  winner,
   onSelectPhase,
+  onSelectVerdict,
 }: {
   format: DebateFormat;
   currentPhase: number | null;
@@ -148,7 +150,11 @@ export function WorkflowGraph({
   streamingSpeaker?: string | null;
   /** 评审环节的实时进度文案（来自 judging_progress 心跳），其它环节传 null */
   judgingNote?: string | null;
+  /** 终态胜方：undefined = 尚无判决；null = 平局 */
+  winner?: "pro" | "con" | null;
   onSelectPhase?: (phase: number) => void;
+  /** 终态点击胜方徽标 → 跳「评委打分」看判决依据 */
+  onSelectVerdict?: () => void;
 }) {
   const terminal = status !== null && ["finished", "failed", "stopped"].includes(status);
 
@@ -381,6 +387,17 @@ export function WorkflowGraph({
             );
           })}
         </span>
+        {terminal && winner !== undefined && (
+          <button
+            type="button"
+            className={`wf-winner ${winner ?? "draw"}`}
+            data-testid="wf-winner"
+            onClick={onSelectVerdict}
+            title={winner ? "查看评委打分与判决依据" : "本场平局"}
+          >
+            {winner ? `🏆 ${winner === "pro" ? "正方" : "反方"}胜` : "⚖️ 平局"}
+          </button>
+        )}
       </div>
 
       <svg

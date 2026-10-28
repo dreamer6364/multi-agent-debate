@@ -309,4 +309,40 @@ describe("WorkflowGraph", () => {
     expect(seen).toEqual([2]);
     cleanup();
   });
+
+  it("FE-CMP-13 终态在流程图上给出胜方徽标，点击可跳判决依据", () => {
+    let jumped = 0;
+    const { container } = render(
+      <WorkflowGraph
+        format="lite"
+        currentPhase={11}
+        status="finished"
+        speeches={[say(1, 2, "pro", "pro-1")]}
+        winner="pro"
+        onSelectVerdict={() => (jumped += 1)}
+      />,
+    );
+    const badge = container.querySelector("[data-testid='wf-winner']");
+    expect(badge?.textContent).toContain("正方胜");
+    fireEvent.click(badge!);
+    expect(jumped).toBe(1);
+    cleanup();
+
+    // 反方胜 / 平局 / 尚无判决（不渲染）
+    const con = render(
+      <WorkflowGraph format="lite" currentPhase={11} status="finished" speeches={[]} winner="con" />,
+    );
+    expect(con.container.querySelector("[data-testid='wf-winner']")?.textContent).toContain("反方胜");
+    cleanup();
+    const draw = render(
+      <WorkflowGraph format="lite" currentPhase={11} status="finished" speeches={[]} winner={null} />,
+    );
+    expect(draw.container.querySelector("[data-testid='wf-winner']")?.textContent).toContain("平局");
+    cleanup();
+    const none = render(
+      <WorkflowGraph format="lite" currentPhase={11} status="finished" speeches={[]} />,
+    );
+    expect(none.container.querySelector("[data-testid='wf-winner']")).toBeNull();
+    cleanup();
+  });
 });
