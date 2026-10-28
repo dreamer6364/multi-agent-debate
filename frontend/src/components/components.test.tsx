@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { GraphSnapshot, LiveSpeech, ScorecardSummary } from "../api/types";
+import type { GraphSnapshot, LiveSpeech, ScorecardSummary, SwimlanePayload } from "../api/types";
 import { useDebateStore } from "../stores/debateStore";
 import { DebateGraphPanel } from "./DebateGraphPanel";
 import { MermaidCanvas } from "./MermaidCanvas";
@@ -10,6 +10,7 @@ import { PhaseTimeline } from "./PhaseTimeline";
 import { RichText } from "./RichText";
 import { ScoreBoard } from "./ScoreBoard";
 import { SpeechCard, roleDisplay } from "./SpeechCard";
+import { SwimlaneSummary } from "./SwimlaneSummary";
 
 describe("SpeechCard", () => {
   const base: LiveSpeech = {
@@ -378,6 +379,68 @@ describe("MermaidCanvas", () => {
     expect(screen.getByText(/缩放 118%/)).toBeTruthy();
     fireEvent.click(screen.getByTitle("复位"));
     expect(screen.getByText(/缩放 100%/)).toBeTruthy();
+    cleanup();
+  });
+});
+
+describe("SwimlaneSummary（v2.7 复盘泳道总结）", () => {
+  const payload: SwimlanePayload = {
+    topic: "技术是人的延伸",
+    rows: [
+      {
+        phase: 2, name: "开篇立论",
+        pro: [{
+          speaker: "正方一辩", action: "开篇立论",
+          content: "我方认为技术是人的延伸，它扩展了能力边界",
+          points_to: [], pointed_by: ["反方二辩（反驳）"], seq: 1,
+        }],
+        con: [{
+          speaker: "反方一辩", action: "开篇立论",
+          content: "然而这种延伸并不成立",
+          points_to: ["正方一辩（反驳）"], pointed_by: [], seq: 2,
+        }],
+        public: { receivers: "评委＋对方全员", timer: "剩余 30 秒提示", notes: ["反方一辩 被质检标注「以偏概全」"] },
+      },
+      {
+        phase: 7, name: "自由辩论",
+        pro: [{
+          speaker: "正方轮换", action: "反驳对方上一轮观点＋补证己方逻辑",
+          content: "共 2 条交锋：正方二辩 → 正方三辩",
+          points_to: ["点对点针对对方上一位发言辩手"], pointed_by: [], seq: 5,
+        }],
+        con: [{
+          speaker: "反方一辩", action: "被指向",
+          content: "开篇立论的论点被 正方二辩 攻击",
+          points_to: [], pointed_by: [], seq: 5,
+        }],
+        public: { receivers: "全场", timer: "逐轮独立计时", notes: [] },
+      },
+    ],
+  };
+
+  it("FE-CMP-16 无数据时给出空态", () => {
+    const { container } = render(<SwimlaneSummary payload={null} />);
+    expect(container.querySelector("[data-testid='swimlane-empty']")).toBeTruthy();
+    cleanup();
+  });
+
+  it("FE-CMP-17 按阶段渲染三泳道：条目、指向标签、公共标注齐备", () => {
+    const { container } = render(<SwimlaneSummary payload={payload} />);
+    const rows = container.querySelectorAll("[data-testid='swimlane-row']");
+    expect(rows.length).toBe(2);
+    expect(container.textContent).toContain("开篇立论");
+    expect(container.textContent).toContain("正方一辩");
+    expect(container.textContent).toContain("← 反方二辩（反驳）");   // 被指向：谁+关系
+    expect(container.textContent).toContain("→ 正方一辩（反驳）");   // 指向：谁+关系
+    expect(container.textContent).toContain("接收方：评委＋对方全员");
+    expect(container.textContent).toContain("计时员：逐轮独立计时");
+    expect(container.textContent).toContain("被质检标注「以偏概全」");
+    // 自由辩论公共列没有标注时不渲染空列表
+    expect(rows[1].querySelector(".sl-notes")).toBeNull();
+    // 被指向条目带受害底色（反方格内）
+    const conEntries = rows[1].querySelectorAll("[data-testid='swimlane-con'] [data-testid='swimlane-entry']");
+    expect(conEntries.length).toBeGreaterThan(0);
+    expect(conEntries[0].className).toContain("sl-victim");
     cleanup();
   });
 });

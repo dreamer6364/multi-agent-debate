@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { FallacyMark, GraphSnapshot, LiveSpeech, SpeechDeltaEvent, TimerEvent, Verdict } from "../api/types";
+import type { FallacyMark, GraphSnapshot, LiveSpeech, SpeechDeltaEvent, SwimlanePayload, TimerEvent, Verdict } from "../api/types";
 
 export type DebateStatus = "pending" | "running" | "finished" | "failed" | "stopped" | null;
 
@@ -38,6 +38,8 @@ interface DebateLiveState {
   /** v2.5 动态图：当前最新快照 + 逐轮历史（可回看上一回合） */
   graph: GraphSnapshot | null;
   graphHistory: GraphSnapshot[];
+  /** v2.7 复盘泳道总结（阶段 × 阵营泳道）：SSE swimlane 事件实时更新，归档由详情接口兜底 */
+  swimlane: SwimlanePayload | null;
   hydrate: (payload: { status: DebateStatus; speeches: LiveSpeech[] }) => void;
   applyDelta: (payload: SpeechDeltaEvent) => void;
   applySpeech: (speech: LiveSpeech) => void;
@@ -50,6 +52,7 @@ interface DebateLiveState {
   ingestFallacies: (items: Array<{ seq: number; fallacies?: FallacyMark[] }>) => void;
   applyGraph: (snapshot: GraphSnapshot) => void;
   hydrateGraphs: (snapshots: GraphSnapshot[]) => void;
+  applySwimlane: (payload: SwimlanePayload) => void;
   setStatus: (status: DebateStatus, error?: string | null) => void;
   setConnected: (connected: boolean) => void;
   reset: () => void;
@@ -73,6 +76,7 @@ const INITIAL = {
   fallaciesBySeq: {},
   graph: null,
   graphHistory: [] as GraphSnapshot[],
+  swimlane: null,
 };
 
 /** 谬误标注去重合并：同名+同引文视为同一条（SSE 与 REST 补拉重叠场景） */
@@ -173,6 +177,8 @@ export const useDebateStore = create<DebateLiveState>((set) => ({
       const history = [...snapshots].sort((a, b) => a.version - b.version);
       return { graph: history.length ? history[history.length - 1] : null, graphHistory: history };
     }),
+  // v2.7：整份泳道总结随发言推进整体替换（后端按实录全量现算，无版本合并问题）
+  applySwimlane: (payload) => set({ swimlane: payload }),
   setStatus: (status, error = null) => set({ status, error }),
   setConnected: (connected) => set({ connected }),
   reset: () => set({ ...INITIAL }),

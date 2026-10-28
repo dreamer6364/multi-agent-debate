@@ -78,6 +78,17 @@ def test_full_debate_reaches_terminal_state(tmp_path, assets_root, backend_root,
         assert any(e["event"] == "judging" for e in events)
         assert any(e["event"] == "verdict" for e in events)
 
+        # 2.5) v2.7 复盘泳道总结：每条发言后推最新一份，行数只增不减；bus 留存最后一份供重连补发
+        swim_events = [e["data"] for e in events if e["event"] == "swimlane"]
+        assert swim_events, "引擎必须发出 swimlane 事件"
+        row_counts = [len(s["rows"]) for s in swim_events]
+        assert row_counts == sorted(row_counts) and row_counts[-1] > 0, row_counts
+        final_rows = swim_events[-1]["rows"]
+        assert any("立论" in r["name"] for r in final_rows), final_rows
+        assert bus.last_swimlane is not None
+        # 终态总结里必须有自由辩论（或至少立论+结辩）的阶段行
+        assert any(r["phase"] == 2 for r in final_rows)
+
         # 3) 落库完整：发言含评委点评、评分卡 3 张、场次终态与胜方
         async with maker() as session:
             rows = (await session.execute(select(SpeechRow).order_by(SpeechRow.seq))).scalars().all()

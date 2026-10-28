@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { getDebate, getGraphs, getSpeeches } from "../api/client";
 import type {
   DebateStatus, FallacyMark, GraphSnapshot, LiveSpeech, PhaseStartEvent,
-  SpeechDeltaEvent, TimerEvent, Verdict,
+  SpeechDeltaEvent, SwimlanePayload, TimerEvent, Verdict,
 } from "../api/types";
 import { useDebateStore, type JudgingProgress } from "../stores/debateStore";
 
@@ -108,6 +108,8 @@ export function useDebateStream(debateId: number | string | undefined): void {
         if (cancelled) return; // cleanup 已发生：丢弃本轮结果（StrictMode 首挂载）
         useDebateStore.getState().setStatus(detail.status as DebateStatus, detail.error);
         page.items.forEach((s) => useDebateStore.getState().applySpeech(s));
+        // v2.7 归档/刷新场景：详情接口自带按落库实录现算的泳道总结
+        if (detail.swimlane) useDebateStore.getState().applySwimlane(detail.swimlane);
         // v2.5 归档回看：终态场次的逐轮图已落库，进来先把历史版本取回（可回看上一回合）
         if (TERMINAL.has(detail.status)) {
           const graphs = await getGraphs(debateId).catch(() => [] as GraphSnapshot[]);
@@ -140,6 +142,8 @@ export function useDebateStream(debateId: number | string | undefined): void {
       bind<{ marks: FallacyMark[] }>("fallacy", (d) => useDebateStore.getState().setFallacyMarks(d.marks));
       // v2.5 动态图：每轮一条，整张图（两种视图的 mermaid 源码）由后端按当时状态现场生成
       bind<GraphSnapshot>("graph", (d) => useDebateStore.getState().applyGraph(d));
+      // v2.7 复盘泳道总结：每条发言后推最新一份（重连由服务端补发 last_swimlane）
+      bind<SwimlanePayload>("swimlane", (d) => useDebateStore.getState().applySwimlane(d));
       bind("error", () => undefined); // error 事件仅提示性；终态由 status 承载
       bind<{ status: DebateStatus; error: string | null }>("status", (d) => {
         useDebateStore.getState().setStatus(d.status, d.error);

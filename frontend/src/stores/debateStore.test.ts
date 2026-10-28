@@ -136,3 +136,19 @@ describe("debateStore 动态图（v2.5）", () => {
     expect(st.graphHistory).toEqual([]);
   });
 });
+
+describe("debateStore 复盘泳道总结（v2.7）", () => {
+  beforeEach(() => useDebateStore.getState().reset());
+
+  it("FE-SL-01 applySwimlane 整份替换；reset 清空", () => {
+    const payload = { topic: "t", rows: [{ phase: 2, name: "开篇立论", pro: [], con: [], public: { receivers: "全场", timer: "剩余 30 秒提示", notes: [] } }] };
+    useDebateStore.getState().applySwimlane(payload);
+    expect(useDebateStore.getState().swimlane?.rows).toHaveLength(1);
+    // 后一条发言推来新版本 → 整体覆盖
+    const next = { topic: "t", rows: [{ phase: 2, name: "开篇立论", pro: [], con: [], public: { receivers: "全场", timer: "剩余 30 秒提示", notes: [] } }, { phase: 4, name: "驳论", pro: [], con: [], public: { receivers: "评委＋对方全员", timer: "剩余 30 秒提示", notes: [] } }] };
+    useDebateStore.getState().applySwimlane(next);
+    expect(useDebateStore.getState().swimlane?.rows).toHaveLength(2);
+    useDebateStore.getState().reset();
+    expect(useDebateStore.getState().swimlane).toBeNull();
+  });
+});

@@ -83,6 +83,10 @@ class DebateContext:
         snap = self.graph.feed_speech(speech)
         if self.on_event:
             self.on_event({"event": "graph", "data": snap})
+            # v2.7 复盘泳道总结：与图同源（指向/被指向完全一致），每条发言后推最新一份
+            from .summary import build_swimlane
+
+            self.on_event({"event": "swimlane", "data": build_swimlane(self.speeches, topic=self.topic.title)})
 
     def record_degradation(self) -> None:
         self.degradation_streak += 1

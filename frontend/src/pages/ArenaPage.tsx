@@ -14,6 +14,7 @@ import { StreamingCard } from "../components/StreamingCard";
 import { TimerBar } from "../components/TimerBar";
 import { VerdictBanner } from "../components/VerdictBanner";
 import { DebateGraphPanel } from "../components/DebateGraphPanel";
+import { SwimlaneSummary } from "../components/SwimlaneSummary";
 import { useDebateStream } from "../hooks/useDebateStream";
 import { useDebateStore } from "../stores/debateStore";
 
@@ -48,6 +49,7 @@ export default function ArenaPage() {
   const connected = useDebateStore((s) => s.connected);
   const graph = useDebateStore((s) => s.graph);
   const graphHistory = useDebateStore((s) => s.graphHistory);
+  const liveSwimlane = useDebateStore((s) => s.swimlane);
   const fallaciesBySeq = useDebateStore((s) => s.fallaciesBySeq);
   const fallacyCount = useMemo(
     () => Object.values(fallaciesBySeq).reduce((acc, arr) => acc + arr.length, 0),
@@ -207,6 +209,12 @@ export default function ArenaPage() {
           status={status ?? detail?.status ?? null}
         />
       ),
+    },
+    {
+      // v2.7 复盘泳道总结：直播随 SSE 实时生长，归档用详情接口现算的兜底
+      key: "swimlane",
+      label: "📋 复盘总结",
+      children: <SwimlaneSummary payload={liveSwimlane ?? detail?.swimlane ?? null} />,
     },
     { key: "qc", label: `🧐 质检报告${fallacyCount ? `（${fallacyCount}）` : ""}`, children: <FallacyReport speeches={speeches} /> },
     { key: "judge", label: "⭐ 评委打分", children: (

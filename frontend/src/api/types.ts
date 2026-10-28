@@ -119,6 +119,8 @@ export interface DebateDetail {
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
+  /** v2.7 复盘泳道总结（详情接口按落库实录现算；直播中由 SSE swimlane 事件更新） */
+  swimlane?: SwimlanePayload | null;
 }
 
 export interface TopicItem {
@@ -162,6 +164,37 @@ export interface GraphState {
   winner: "pro" | "con" | null;
   node_count: number;
   edge_count: number;
+}
+
+/** v2.7 复盘泳道总结：阶段 × 阵营泳道（正方/反方/公共场域），与论证关系图同源 */
+export interface SwimlaneEntry {
+  speaker: string;
+  action: string;
+  content: string;
+  /** 指向对象（如「反方一辩（反驳）」） */
+  points_to: string[];
+  /** 被谁指向 */
+  pointed_by: string[];
+  seq: number | null;
+}
+
+export interface SwimlanePublic {
+  receivers: string;
+  timer: string;
+  notes: string[];
+}
+
+export interface SwimlaneRow {
+  phase: number;
+  name: string;
+  pro: SwimlaneEntry[];
+  con: SwimlaneEntry[];
+  public: SwimlanePublic;
+}
+
+export interface SwimlanePayload {
+  topic: string;
+  rows: SwimlaneRow[];
 }
 
 /** 一轮图快照（SSE graph 事件 / GET /debates/{id}/graphs 同构） */

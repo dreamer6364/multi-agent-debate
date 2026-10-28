@@ -822,3 +822,67 @@ a.neu-btn-accent.hero-btn { color: #fff; }
 .dg-live { color: var(--accent-deep); font-weight: 700; }
 .dg-ver { color: var(--ink-3); white-space: nowrap; }
 .dg-note { font-size: 12px; color: var(--ink-3); margin: 10px 2px 0; line-height: 1.7; }
+
+/* ---- v2.7 复盘泳道总结（SwimlaneSummary）---- */
+.sl-empty {
+  padding: 46px 20px; text-align: center; color: var(--ink-3);
+  background: var(--neu-bg); border-radius: 16px;
+  box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light);
+}
+.sl-empty-title { font-size: 15px; font-weight: 700; color: var(--ink-2); margin-bottom: 8px; }
+.sl-empty-sub { font-size: 12.5px; line-height: 1.8; max-width: 520px; margin: 0 auto; }
+
+.sl { display: flex; flex-direction: column; gap: 14px; }
+.sl-row {
+  display: grid; grid-template-columns: 128px 1fr 1fr 1.05fr; gap: 0;
+  background: var(--neu-bg); border-radius: 16px; overflow: hidden;
+  box-shadow: 4px 4px 9px var(--neu-dark), -4px -4px 9px var(--neu-light);
+}
+.sl-phase {
+  display: flex; align-items: center; justify-content: center; padding: 16px 10px;
+  background: linear-gradient(160deg, rgba(109, 93, 252, 0.10), rgba(109, 93, 252, 0.03));
+  border-right: 1px solid rgba(109, 93, 252, 0.16);
+}
+.sl-phase-name { font-size: 14.5px; font-weight: 800; color: var(--accent-deep); text-align: center; line-height: 1.5; }
+.sl-cell { padding: 12px 14px; display: flex; flex-direction: column; gap: 9px; }
+.sl-cell + .sl-cell { border-left: 1px dashed rgba(138, 147, 165, 0.28); }
+.sl-cell-title { font-size: 12px; font-weight: 800; letter-spacing: 0.06em; }
+.sl-cell-title.pro { color: var(--accent-deep); }
+.sl-cell-title.con { color: var(--con-deep); }
+.sl-cell-title.neutral { color: #8a6a1c; }
+.sl-none { color: var(--ink-3); font-size: 12.5px; }
+
+.sl-entry {
+  padding: 9px 11px; border-radius: 12px;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: inset 1px 1px 3px var(--neu-dark), inset -1px -1px 3px var(--neu-light);
+}
+.sl-entry.sl-victim { background: rgba(255, 107, 107, 0.08); }
+.sl-entry-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sl-speaker { font-size: 13px; font-weight: 800; }
+.sl-camp-pro { color: var(--accent-deep); }
+.sl-camp-con { color: var(--con-deep); }
+.sl-action {
+  font-size: 11px; font-weight: 700; color: var(--ink-2);
+  padding: 1px 8px; border-radius: 999px;
+  background: rgba(138, 147, 165, 0.14);
+}
+.sl-action-hit { color: #8f2b2b; background: rgba(255, 107, 107, 0.16); }
+.sl-content { margin: 6px 0 0; font-size: 12.5px; line-height: 1.75; color: var(--ink); }
+.sl-refs { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.sl-tag {
+  font-size: 11px !important; line-height: 1.7; margin-inline-end: 0 !important;
+  border: 0; background: rgba(138, 147, 165, 0.13) !important; color: var(--ink-2) !important;
+}
+.sl-tag-point { color: var(--accent-deep) !important; background: rgba(109, 93, 252, 0.10) !important; }
+.sl-tag-pointed { color: var(--con-deep) !important; background: rgba(255, 107, 107, 0.10) !important; }
+
+.sl-public-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.sl-notes { margin: 4px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.sl-notes li { font-size: 12px; line-height: 1.7; color: var(--ink-2); }
+.sl-note { font-size: 12px; color: var(--ink-3); margin: 10px 2px 0; line-height: 1.7; }
+
+@media (max-width: 900px) {
+  .sl-row { grid-template-columns: 96px 1fr 1fr; }
+  .sl-cell.sl-public { grid-column: 2 / -1; border-top: 1px dashed rgba(138, 147, 165, 0.28); border-left: 0; }
+}

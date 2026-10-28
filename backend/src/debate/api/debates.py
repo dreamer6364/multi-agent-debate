@@ -152,6 +152,24 @@ async def get_debate(debate_id: int, user=Depends(get_current_user),
     card_rows = (await session.execute(
         select(ScorecardRow).where(ScorecardRow.debate_id == debate.id)
     )).scalars().all()
+    # v2.7 复盘泳道总结：按落库实录现算（与直播 SSE 同源函数），旧场次无需迁移
+    speech_rows = (await session.execute(
+        select(SpeechRow).where(SpeechRow.debate_id == debate.id).order_by(SpeechRow.seq)
+    )).scalars().all()
+    swimlane = None
+    if speech_rows:
+        from types import SimpleNamespace
+
+        from ..engine.summary import build_swimlane
+
+        # SimpleNamespace 包装：把 SpeechRow.fallacies 挂到实录对象上（Speech schema 本身不带谬误字段）
+        transcript = [SimpleNamespace(
+            seq=r.seq, phase=r.phase, phase_name=r.phase_name,
+            speaker=r.speaker_role, camp=Camp(r.camp), text=r.text,
+            side_notes=r.side_notes or [], interrupted=r.interrupted,
+            fallacies=r.fallacies or [],
+        ) for r in speech_rows]
+        swimlane = build_swimlane(transcript, topic=topic_row.title)
     # 决胜依据：优先取落库元数据（v1.9），历史场次按同一优先级回算
     meta = (debate.cfg_json or {}).get("verdict_meta") or {}
     rule = meta.get("rule")
@@ -195,6 +213,7 @@ async def get_debate(debate_id: int, user=Depends(get_current_user),
         } for c in card_rows],
         "started_at": iso_cn(debate.started_at), "finished_at": iso_cn(debate.finished_at),
         "created_at": iso_cn(debate.created_at),
+        "swimlane": swimlane,
     }
 
 
@@ -383,6 +402,10 @@ async def stream_debate(debate_id: int, request: Request, after_seq: int = 0,
             if bus.last_graph:
                 yield _sse({"event": "graph", "id": bus.allocate_id(),
                             "data": bus.last_graph})
+            # v2.7：重连补当前时刻的复盘泳道总结
+            if bus.last_swimlane:
+                yield _sse({"event": "swimlane", "id": bus.allocate_id(),
+                            "data": bus.last_swimlane})
             # 3) 实时消费
             while True:
                 try:
