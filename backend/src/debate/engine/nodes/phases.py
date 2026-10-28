@@ -185,6 +185,9 @@ def _emit(ctx: DebateContext, new: list[Speech], speech: Speech) -> None:
     ctx.speeches.append(speech)
     if ctx.on_speech:
         ctx.on_speech(speech)
+    # v2.5：每条发言都是图的一次增量（新论点节点 + 攻防连线），定稿后立刻推送新图
+    if getattr(ctx, "graph", None) is not None:  # 轻量测试桩可能没有图状态机
+        ctx.track_speech(speech)
 
 
 def _ask(

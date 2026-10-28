@@ -81,3 +81,58 @@ describe("debateStore 谬误标注挂载（v1.7 Elenchus）", () => {
     expect(useDebateStore.getState().fallaciesBySeq[5]).toHaveLength(1);
   });
 });
+
+describe("debateStore 动态图（v2.5）", () => {
+  beforeEach(() => useDebateStore.getState().reset());
+
+  const snap = (version: number) => ({
+    version,
+    round: version,
+    state: {
+      topic: "辩题", round: version, pro_agent: "pro-1", con_agent: "con-1",
+      moderator: "chair", current_claim: "主张", phase: 2, phase_name: "开篇立论",
+      converged: false, terminated: false, branch: "next_round", winner: null as null,
+      node_count: version, edge_count: version - 1, flow_count: version,
+    },
+    views: { control: `flowchart TD\n  a${version}`, argument: `flowchart LR\n  b${version}` },
+    active: `f${version}`, active_node: `n${version}`,
+    added_nodes: [`n${version}`], added_edges: [], added_edge_kinds: [],
+    converged: false, terminated: false, branch: "next_round",
+  });
+
+  it("FE-GRAPH-01 每轮图进入历史，当前图始终是最新版本", () => {
+    const s = useDebateStore.getState();
+    s.applyGraph(snap(1) as never);
+    s.applyGraph(snap(2) as never);
+    s.applyGraph(snap(3) as never);
+    const st = useDebateStore.getState();
+    expect(st.graphHistory.map((x) => x.version)).toEqual([1, 2, 3]);
+    expect(st.graph?.version).toBe(3);
+  });
+
+  it("FE-GRAPH-02 同一版本重发（重连补发）只覆盖不重复追加", () => {
+    const s = useDebateStore.getState();
+    s.applyGraph(snap(1) as never);
+    s.applyGraph(snap(2) as never);
+    s.applyGraph(snap(2) as never);
+    const st = useDebateStore.getState();
+    expect(st.graphHistory).toHaveLength(2);
+    expect(st.graph?.version).toBe(2);
+  });
+
+  it("FE-GRAPH-03 归档回看：hydrateGraphs 直接装载历史并定位最后一张", () => {
+    useDebateStore.getState().hydrateGraphs([snap(5) as never, snap(3) as never, snap(4) as never]);
+    const st = useDebateStore.getState();
+    expect(st.graphHistory.map((x) => x.version)).toEqual([3, 4, 5]);
+    expect(st.graph?.version).toBe(5);
+  });
+
+  it("FE-GRAPH-04 reset 清空图与历史（换场次不串图）", () => {
+    const s = useDebateStore.getState();
+    s.applyGraph(snap(1) as never);
+    s.reset();
+    const st = useDebateStore.getState();
+    expect(st.graph).toBeNull();
+    expect(st.graphHistory).toEqual([]);
+  });
+});

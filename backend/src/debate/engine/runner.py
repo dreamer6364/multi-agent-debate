@@ -8,6 +8,7 @@ from typing import Callable
 from ..core.config import AppConfig
 from .agents.loader import AgentSpec, load_agents
 from .graph.builder import build_graph
+from .graph.debate_state import GraphTracker
 from .graph.state import initial_state
 from .llm.gateway import Gateway
 from .rag.retriever import EvidenceRetriever
@@ -26,6 +27,7 @@ class DebateResult:
     error: str | None = None
     machine_marks: list[dict] = field(default_factory=list)  # v1.7 Elenchus 谬误标注
     usage: dict[str, int] = field(default_factory=dict)
+    graph_snapshots: list[dict] = field(default_factory=list)  # v2.5 逐轮图快照（归档回看用）
 
 
 def run_debate(
@@ -73,6 +75,8 @@ def run_debate(
         config=config, topic=topic, agents=agents, gateway=gateway,
         compressor=compressor, format=fmt, evidence=evidence, on_speech=on_speech, on_event=on_event, on_delta=on_delta,
         cancel_check=cancel_check, retriever=retriever, web_provider=web_provider,
+        # v2.5：图状态机与辩论同生共死——发言/环节/宣判都会喂给它，它负责现场生成 mermaid
+        graph=GraphTracker(topic=topic.title),
     )
     graph = build_graph(ctx, fmt)
     try:
@@ -84,12 +88,15 @@ def run_debate(
             verdict=final.get("verdict"),
             machine_marks=final.get("machine_marks", []),
             usage=dict(gateway.usage),
+            graph_snapshots=list(ctx.graph.history) if ctx.graph else [],
         )
     except DebateCancelled:
         return DebateResult(
             status="stopped", transcript=list(ctx.speeches), usage=dict(gateway.usage),
+            graph_snapshots=list(ctx.graph.history) if ctx.graph else [],
         )
     except DebateAborted as exc:
         return DebateResult(
             status="failed", transcript=list(ctx.speeches), error=str(exc), usage=dict(gateway.usage),
+            graph_snapshots=list(ctx.graph.history) if ctx.graph else [],
         )

@@ -1,12 +1,13 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
-import type { LiveSpeech, ScorecardSummary } from "../api/types";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { GraphSnapshot, LiveSpeech, ScorecardSummary } from "../api/types";
 import { useDebateStore } from "../stores/debateStore";
+import { DebateGraphPanel } from "./DebateGraphPanel";
+import { MermaidCanvas } from "./MermaidCanvas";
 import { FrameworkPanel } from "./FrameworkPanel";
 import { JudgeReasonCards } from "./JudgeReasonCards";
 import { PhaseTimeline } from "./PhaseTimeline";
 import { RichText } from "./RichText";
-import { WorkflowGraph } from "./WorkflowGraph";
 import { ScoreBoard } from "./ScoreBoard";
 import { SpeechCard, roleDisplay } from "./SpeechCard";
 
@@ -244,105 +245,122 @@ describe("RichText", () => {
   });
 });
 
-describe("WorkflowGraph", () => {
-  const say = (seq: number, phase: number, camp: LiveSpeech["camp"], speaker: string): LiveSpeech => ({
-    seq, speaker, camp, text: "发言", interrupted: false, side_notes: [], phase, word_count: 100,
+vi.mock("mermaid", () => {
+  const render = async (_id: string, code: string) => ({
+    svg: `<svg xmlns="http://www.w3.org/2000/svg"><text>${
+      code.startsWith("flowchart TD") ? "控制图" : "论证图"
+    }</text></svg>`,
+  });
+  return { default: { initialize: () => undefined, render }, initialize: () => undefined, render };
+});
+
+const snap = (version: number, round: number, over: Partial<GraphSnapshot> = {}): GraphSnapshot => ({
+  version,
+  round,
+  state: {
+    topic: "人工智能时代，人类应该更依赖技术",
+    round,
+    pro_agent: "pro-1",
+    con_agent: "con-1",
+    moderator: "chair",
+    current_claim: `第 ${round} 轮的主张`,
+    phase: 2,
+    phase_name: "开篇立论",
+    converged: false,
+    terminated: false,
+    branch: "next_round",
+    winner: null,
+    node_count: round * 2,
+    edge_count: round,
+    flow_count: round * 2 + 1,
+  },
+  views: {
+    control: "flowchart TD\n  s([\"开赛\"]):::start",
+    argument: "flowchart LR\n  T([\"辩题\"]):::topic",
+  },
+  active: `f${version}`,
+  active_node: `n${version}`,
+  added_nodes: [`n${version}`],
+  added_edges: [`e${version}`],
+  added_edge_kinds: ["attack"],
+  converged: false,
+  terminated: false,
+  branch: "next_round",
+  ...over,
+});
+
+describe("DebateGraphPanel（v2.5 动态辩论图）", () => {
+  it("FE-CMP-10 无图时给出空态，不渲染画布", () => {
+    const { container } = render(<DebateGraphPanel graph={null} history={[]} status="pending" />);
+    expect(container.querySelector("[data-testid='debate-graph-empty']")).toBeTruthy();
+    expect(container.querySelector("[data-testid='dg-canvas']")).toBeNull();
+    cleanup();
   });
 
-  it("FE-CMP-10 随直播高亮当前环节，并统计各侧发言条数", () => {
+  it("FE-CMP-11 状态条展示轮次/双方 Agent/裁判/分支，并标注本轮变更", () => {
     const { container } = render(
-      <WorkflowGraph
-        format="full"
-        currentPhase={3}
-        status="running"
-        speeches={[say(1, 2, "pro", "pro-1"), say(2, 2, "con", "con-1"), say(3, 3, "con", "con-2")]}
-        streamingCamp="pro"
-        streamingSpeaker="pro-2"
-      />,
+      <DebateGraphPanel graph={snap(3, 2)} history={[snap(1, 1), snap(2, 1), snap(3, 2)]} status="running" />,
     );
-    // full 赛制 11 个环节全部渲染
-    expect(container.querySelectorAll("[data-testid^='wf-phase-']").length).toBe(11);
-    // 已完成的立论为 done，当前质询为 active，后续环节 pending
-    expect(container.querySelector("[data-testid='wf-phase-2']")?.getAttribute("data-state")).toBe("done");
-    expect(container.querySelector("[data-testid='wf-phase-3']")?.getAttribute("data-state")).toBe("active");
-    expect(container.querySelector("[data-testid='wf-phase-7']")?.getAttribute("data-state")).toBe("pending");
-    // 立论两侧各 1 条，质询正方席位显示「发言中」
-    const proSlot = container.querySelector("[data-testid='wf-slot-2-pro']");
-    expect(proSlot?.textContent).toContain("1 条");
-    expect(container.querySelector("[data-testid='wf-slot-3-pro']")?.textContent).toContain("发言中");
-    // 状态条给出步骤进度
-    expect(container.querySelector("[data-testid='wf-status']")?.textContent).toContain("第 3/11 步");
+    const stateText = container.querySelector("[data-testid='dg-state']")?.textContent ?? "";
+    expect(stateText).toContain("2");           // 回合号
+    expect(stateText).toContain("正方一辩");     // 正方 Agent
+    expect(stateText).toContain("反方一辩");     // 反方 Agent
+    expect(stateText).toContain("裁判 主席");    // Moderator
+    expect(stateText).toContain("当前论点");
+    expect(stateText).toContain("继续下一轮");   // 跳转分支
+    const delta = container.querySelector("[data-testid='dg-delta']")?.textContent ?? "";
+    expect(delta).toContain("+1 节点");
+    expect(delta).toContain("+1 攻击边");
     cleanup();
   });
 
-  it("FE-CMP-11 质询/攻辩行画出「谁向谁」的双向箭头，lite 只渲染 8 环节", () => {
-    const lite = render(
-      <WorkflowGraph format="lite" currentPhase={2} status="running" speeches={[]} />,
-    );
-    expect(lite.container.querySelectorAll("[data-testid^='wf-phase-']").length).toBe(8);
-    // lite 无质询/攻辩，不应出现交叉箭头标签
-    expect(lite.container.textContent).not.toContain("质询");
-    cleanup();
+  it("FE-CMP-12 双视图切换，历史可回看上一版再回到最新", () => {
+    const history = [snap(1, 1), snap(2, 1), snap(3, 2)];
+    const { container } = render(<DebateGraphPanel graph={snap(3, 2)} history={history} status="running" />);
+    const tabs = container.querySelectorAll("[role='tab']");
+    expect(tabs.length).toBe(2);
+    expect(tabs[0].getAttribute("aria-selected")).toBe("true"); // 默认工作流控制图
+    fireEvent.click(tabs[1]);
+    expect(tabs[1].getAttribute("aria-selected")).toBe("true");
 
-    const full = render(
-      <WorkflowGraph format="full" currentPhase={3} status="running" speeches={[]} />,
-    );
-    const qc = full.container.querySelector("[data-testid='wf-phase-3']");
-    expect(qc?.textContent).toContain("质询");
-    expect(qc?.querySelectorAll("line[marker-start]").length).toBe(1); // 双向箭头
+    expect(container.querySelector("[data-testid='dg-history']")?.textContent).toContain("第 3/3 版");
+    fireEvent.click(screen.getByText("◀ 上一版"));
+    expect(container.querySelector("[data-testid='dg-history']")?.textContent).toContain("第 2/3 版");
+    expect(container.querySelector("[data-testid='dg-back-live']")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("dg-back-live"));
+    expect(container.querySelector("[data-testid='dg-history']")?.textContent).toContain("第 3/3 版");
     cleanup();
   });
 
-  it("FE-CMP-12 已结束场次不再有高亮环节；点击席位回传环节号", () => {
-    const seen: number[] = [];
-    const { container } = render(
-      <WorkflowGraph
-        format="lite"
-        currentPhase={11}
-        status="finished"
-        speeches={[say(1, 2, "pro", "pro-1"), say(2, 11, "neutral", "chair")]}
-        onSelectPhase={(p) => seen.push(p)}
-      />,
-    );
-    expect(container.querySelectorAll("[data-state='active']").length).toBe(0);
-    fireEvent.click(container.querySelector("[data-testid='wf-slot-2-pro']")!);
-    expect(seen).toEqual([2]);
+  it("FE-CMP-13 终态收敛/终止以标签呈现", () => {
+    const done = snap(4, 3, {
+      converged: true, terminated: true, branch: "terminate",
+      state: {
+        ...snap(4, 3).state, converged: true, terminated: true,
+        branch: "terminate", winner: "pro",
+      },
+    });
+    const { container } = render(<DebateGraphPanel graph={done} history={[done]} status="finished" />);
+    const text = container.querySelector("[data-testid='dg-state']")?.textContent ?? "";
+    expect(text).toContain("已收敛");
+    expect(text).toContain("已终止");
+    expect(text).toContain("终止");
     cleanup();
   });
+});
 
-  it("FE-CMP-13 终态在流程图上给出胜方徽标，点击可跳判决依据", () => {
-    let jumped = 0;
-    const { container } = render(
-      <WorkflowGraph
-        format="lite"
-        currentPhase={11}
-        status="finished"
-        speeches={[say(1, 2, "pro", "pro-1")]}
-        winner="pro"
-        onSelectVerdict={() => (jumped += 1)}
-      />,
-    );
-    const badge = container.querySelector("[data-testid='wf-winner']");
-    expect(badge?.textContent).toContain("正方胜");
-    fireEvent.click(badge!);
-    expect(jumped).toBe(1);
+describe("MermaidCanvas", () => {
+  it("FE-CMP-14 空源码显示空态；有源码时渲染 SVG 并支持缩放", async () => {
+    const empty = render(<MermaidCanvas code="" />);
+    expect(empty.container.querySelector("[data-testid='mermaid-canvas-empty']")).toBeTruthy();
     cleanup();
 
-    // 反方胜 / 平局 / 尚无判决（不渲染）
-    const con = render(
-      <WorkflowGraph format="lite" currentPhase={11} status="finished" speeches={[]} winner="con" />,
-    );
-    expect(con.container.querySelector("[data-testid='wf-winner']")?.textContent).toContain("反方胜");
-    cleanup();
-    const draw = render(
-      <WorkflowGraph format="lite" currentPhase={11} status="finished" speeches={[]} winner={null} />,
-    );
-    expect(draw.container.querySelector("[data-testid='wf-winner']")?.textContent).toContain("平局");
-    cleanup();
-    const none = render(
-      <WorkflowGraph format="lite" currentPhase={11} status="finished" speeches={[]} />,
-    );
-    expect(none.container.querySelector("[data-testid='wf-winner']")).toBeNull();
+    render(<MermaidCanvas code={"flowchart TD\n  a-->b"} version="1" />);
+    await waitFor(() => expect(screen.getByText("控制图")).toBeTruthy());
+    fireEvent.click(screen.getByTitle("放大"));
+    expect(screen.getByText(/缩放 118%/)).toBeTruthy();
+    fireEvent.click(screen.getByTitle("复位"));
+    expect(screen.getByText(/缩放 100%/)).toBeTruthy();
     cleanup();
   });
 });

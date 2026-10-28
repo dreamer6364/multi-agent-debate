@@ -29,7 +29,7 @@ frontend/.vite.out.log
 frontend/.vite*.log
 
 # 本地联调临时数据库（FakeLLM 开发档 / 截图核版式用）
-backend/debate-shot.db
+backend/debate-shot*.db
 
 # 前端（M5 起）
 node_modules/

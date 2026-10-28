@@ -14,6 +14,7 @@ class EventBus:
         self._subscribers: set[asyncio.Queue] = set()
         self._non_speech_id = 0
         self.last_phase_start: dict | None = None  # 重连快照用（SPEC §6.1）
+        self.last_graph: dict | None = None  # v2.5 重连快照用：补当前时刻的图
         self.closed = False
 
     def allocate_id(self) -> int:
@@ -26,6 +27,8 @@ class EventBus:
             event = {**event, "id": self.allocate_id()}
             if kind == "phase_start":
                 self.last_phase_start = event["data"]
+            elif kind == "graph":
+                self.last_graph = event["data"]
         for queue in list(self._subscribers):
             queue.put_nowait(event)
 

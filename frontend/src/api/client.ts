@@ -2,6 +2,7 @@ import axios from "axios";
 import type {
   DebateDetail,
   DebateFormat,
+  GraphSnapshot,
   MeInfo,
   SpeechPage,
   TopicItem,
@@ -88,6 +89,11 @@ export async function getSpeeches(id: number | string, afterSeq = 0): Promise<Sp
   return (await api.get<SpeechPage>(`/debates/${id}/speeches`, {
     params: { after_seq: afterSeq, limit: 500 },
   })).data;
+}
+
+/** v2.5：逐轮图快照（归档回看时按版本翻看历史图） */
+export async function getGraphs(id: number | string): Promise<GraphSnapshot[]> {
+  return (await api.get<{ items: GraphSnapshot[] }>(`/debates/${id}/graphs`)).data.items;
 }
 
 export async function stopDebate(id: number | string): Promise<void> {

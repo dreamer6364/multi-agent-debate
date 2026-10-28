@@ -102,9 +102,32 @@ class SpeechRow(SQLModel, table=True):
     )
 
 
+class GraphSnapshotRow(SQLModel, table=True):
+    """辩论图快照（v2.5）：每一轮/每次裁决后的 mermaid 图，供归档回看逐回合翻看。
+
+    直播走 SSE 实时推送，本表只在终态一次性写入全量历史——避免每条发言都打一次库。
+    """
+
+    __tablename__ = "graph_snapshots"
+
+    id: int | None = Field(default=None, primary_key=True)
+    debate_id: int = Field(foreign_key="debates.id")
+    version: int
+    round: int = 0
+    active_node: str | None = Field(default=None, max_length=16)
+    control: str = Field(sa_column=Column(Text))
+    argument: str = Field(sa_column=Column(Text))
+    payload_json: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    created_at: NaiveDatetime = Field(default_factory=now_cn)
+
+    __table_args__ = (
+        UniqueConstraint("debate_id", "version", name="uq_graph_version"),
+        Index("idx_graphs_debate", "debate_id"),
+    )
+
+
 class ScorecardRow(SQLModel, table=True):
     __tablename__ = "scorecards"
-
     id: int | None = Field(default=None, primary_key=True)
     debate_id: int = Field(foreign_key="debates.id")
     judge: str = Field(max_length=32)

@@ -1,6 +1,9 @@
 import { useEffect } from "react";
-import { getDebate, getSpeeches } from "../api/client";
-import type { DebateStatus, FallacyMark, LiveSpeech, PhaseStartEvent, SpeechDeltaEvent, TimerEvent, Verdict } from "../api/types";
+import { getDebate, getGraphs, getSpeeches } from "../api/client";
+import type {
+  DebateStatus, FallacyMark, GraphSnapshot, LiveSpeech, PhaseStartEvent,
+  SpeechDeltaEvent, TimerEvent, Verdict,
+} from "../api/types";
 import { useDebateStore, type JudgingProgress } from "../stores/debateStore";
 
 /** 轮询兜底间隔（SPEC §9.2：SSE 连续失败 3 次后降级为 5 秒轮询） */
@@ -105,6 +108,11 @@ export function useDebateStream(debateId: number | string | undefined): void {
         if (cancelled) return; // cleanup 已发生：丢弃本轮结果（StrictMode 首挂载）
         useDebateStore.getState().setStatus(detail.status as DebateStatus, detail.error);
         page.items.forEach((s) => useDebateStore.getState().applySpeech(s));
+        // v2.5 归档回看：终态场次的逐轮图已落库，进来先把历史版本取回（可回看上一回合）
+        if (TERMINAL.has(detail.status)) {
+          const graphs = await getGraphs(debateId).catch(() => [] as GraphSnapshot[]);
+          if (!cancelled && graphs.length) useDebateStore.getState().hydrateGraphs(graphs);
+        }
       } catch {
         /* 详情失败不阻塞直播订阅 */
       }
@@ -130,6 +138,8 @@ export function useDebateStream(debateId: number | string | undefined): void {
       bind<Verdict>("verdict", (d) => useDebateStore.getState().setVerdict(d));
       // v1.7 Elenchus：评审节点产出的谬误标注（marks 按 seq 挂载到发言卡）
       bind<{ marks: FallacyMark[] }>("fallacy", (d) => useDebateStore.getState().setFallacyMarks(d.marks));
+      // v2.5 动态图：每轮一条，整张图（两种视图的 mermaid 源码）由后端按当时状态现场生成
+      bind<GraphSnapshot>("graph", (d) => useDebateStore.getState().applyGraph(d));
       bind("error", () => undefined); // error 事件仅提示性；终态由 status 承载
       bind<{ status: DebateStatus; error: string | null }>("status", (d) => {
         useDebateStore.getState().setStatus(d.status, d.error);

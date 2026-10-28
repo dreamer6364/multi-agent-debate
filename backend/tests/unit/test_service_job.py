@@ -15,7 +15,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlmodel import SQLModel, select
 
 from debate.core.config import AppConfig
-from debate.db.models import DebateRow, ScorecardRow, SpeechRow
+from debate.db.models import DebateRow, GraphSnapshotRow, ScorecardRow, SpeechRow
+from debate.engine.graph.debate_state import GraphTracker
 from debate.engine.llm.gateway import Gateway
 from debate.engine.runner import DebateResult
 from debate.engine.schema import Camp, DebateFormat, ScoreCard, Speech, Topic, Verdict
@@ -116,6 +117,43 @@ def test_finalize_persists_fallacies_and_terminal_status(tmp_path, monkeypatch):
             assert debate.status == "finished"
             assert debate.winner == "pro"
             assert (debate.cfg_json or {}).get("verdict_meta", {}).get("rule") == "majority"
+
+    asyncio.run(main())
+
+
+def test_graph_snapshots_are_persisted_for_playback(tmp_path, monkeypatch):
+    """v2.5：逐轮图快照必须在终态落库，归档回看才能逐回合翻看。
+
+    直播期间图走 SSE，不读库；这里锁死"刷新/回看也拿得到历史图"这条。
+    """
+
+    def with_graph() -> DebateResult:
+        result = _result()
+        tracker = GraphTracker(topic=TOPIC.title)
+        for speech in result.transcript:
+            tracker.feed_speech(speech)
+        tracker.feed_phase_end(2)
+        tracker.feed_verdict(winner="pro", rule="majority")
+        result.graph_snapshots = tracker.history
+        return result
+
+    async def main():
+        _bus, _events, maker = await _run_job(tmp_path / "graph.db", monkeypatch,
+                                              lambda **kw: with_graph())
+        async with maker() as session:
+            rows = (await session.execute(
+                select(GraphSnapshotRow).order_by(GraphSnapshotRow.version)
+            )).scalars().all()
+            # 3 条发言 + 1 次环节结束 + 1 次宣判
+            assert [r.version for r in rows] == [1, 2, 3, 4, 5]
+            assert rows[0].control.startswith("flowchart TD")
+            assert rows[-1].argument.startswith("flowchart LR")
+            assert rows[-1].payload_json["terminated"] is True
+            assert "终止" in rows[-1].control
+            # 版本 1 的图里只有主席开场，版本 3 之后才长出双方论点——历史不是同一张图
+            assert ":::neutral" in rows[0].argument
+            assert ":::pro" not in rows[0].argument
+            assert ":::con" in rows[2].argument
 
     asyncio.run(main())
 

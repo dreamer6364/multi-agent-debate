@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { FallacyMark, LiveSpeech, SpeechDeltaEvent, TimerEvent, Verdict } from "../api/types";
+import type { FallacyMark, GraphSnapshot, LiveSpeech, SpeechDeltaEvent, TimerEvent, Verdict } from "../api/types";
 
 export type DebateStatus = "pending" | "running" | "finished" | "failed" | "stopped" | null;
 
@@ -35,6 +35,9 @@ interface DebateLiveState {
   lastSeq: number;
   /** v1.7 Elenchus 谬误标注，按发言 seq 挂载（SSE fallacy 事件 + REST 补拉合并） */
   fallaciesBySeq: Record<number, FallacyMark[]>;
+  /** v2.5 动态图：当前最新快照 + 逐轮历史（可回看上一回合） */
+  graph: GraphSnapshot | null;
+  graphHistory: GraphSnapshot[];
   hydrate: (payload: { status: DebateStatus; speeches: LiveSpeech[] }) => void;
   applyDelta: (payload: SpeechDeltaEvent) => void;
   applySpeech: (speech: LiveSpeech) => void;
@@ -45,6 +48,8 @@ interface DebateLiveState {
   setVerdict: (verdict: Verdict) => void;
   setFallacyMarks: (marks: FallacyMark[]) => void;
   ingestFallacies: (items: Array<{ seq: number; fallacies?: FallacyMark[] }>) => void;
+  applyGraph: (snapshot: GraphSnapshot) => void;
+  hydrateGraphs: (snapshots: GraphSnapshot[]) => void;
   setStatus: (status: DebateStatus, error?: string | null) => void;
   setConnected: (connected: boolean) => void;
   reset: () => void;
@@ -66,6 +71,8 @@ const INITIAL = {
   connected: false,
   lastSeq: 0,
   fallaciesBySeq: {},
+  graph: null,
+  graphHistory: [] as GraphSnapshot[],
 };
 
 /** 谬误标注去重合并：同名+同引文视为同一条（SSE 与 REST 补拉重叠场景） */
@@ -154,6 +161,18 @@ export const useDebateStore = create<DebateLiveState>((set) => ({
   setFallacyMarks: (marks) => set((state) => ({ fallaciesBySeq: mergeMarks(state.fallaciesBySeq, marks) })),
   ingestFallacies: (items) =>
     set((state) => ({ fallaciesBySeq: mergeMarks(state.fallaciesBySeq, items.flatMap((i) => i.fallacies ?? [])) })),
+  // v2.5：每轮一张图。同 version 重发（重连补发/重放）只覆盖不追加，避免历史里出现重复回合。
+  applyGraph: (snapshot) =>
+    set((state) => {
+      const rest = state.graphHistory.filter((s) => s.version !== snapshot.version);
+      const history = [...rest, snapshot].sort((a, b) => a.version - b.version);
+      return { graph: history[history.length - 1], graphHistory: history };
+    }),
+  hydrateGraphs: (snapshots) =>
+    set(() => {
+      const history = [...snapshots].sort((a, b) => a.version - b.version);
+      return { graph: history.length ? history[history.length - 1] : null, graphHistory: history };
+    }),
   setStatus: (status, error = null) => set({ status, error }),
   setConnected: (connected) => set({ connected }),
   reset: () => set({ ...INITIAL }),

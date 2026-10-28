@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel import func, select
 
 from ..core.config import AppConfig
-from ..db.models import DebateRow, ScorecardRow, SpeechRow
+from ..db.models import DebateRow, GraphSnapshotRow, ScorecardRow, SpeechRow
 from ..engine.agents.loader import AgentSpec
 from ..engine.llm.gateway import Gateway
 from ..engine.runner import DebateResult, run_debate
@@ -349,6 +349,7 @@ class DebateService:
             if debate is None:  # 场次被并发删除：不再落库，交由上层按失败收尾
                 raise RuntimeError(f"debate {debate_id} 不存在，无法写入终态")
             await session.execute(delete(ScorecardRow).where(ScorecardRow.debate_id == debate_id))
+            await self._write_graph_snapshots(session, debate_id, result)
             debate.status = result.status
             debate.error = result.error
             debate.finished_at = self.now_fn()
@@ -378,3 +379,31 @@ class DebateService:
                 ))
             session.add(debate)
             await session.commit()
+
+    async def _write_graph_snapshots(self, session, debate_id: int, result: DebateResult) -> None:
+        """落库逐轮图快照（v2.5）：直播已经在 SSE 里推过，这里只为归档回看留存。
+
+        幂等：重跑/补写场景先清旧行；只留 mermaid 源码 + 精简摘要，
+        不重复存节点表（图源码里已含全部信息）。
+        """
+        await session.execute(delete(GraphSnapshotRow).where(GraphSnapshotRow.debate_id == debate_id))
+        for snap in result.graph_snapshots:
+            views = snap.get("views") or {}
+            session.add(GraphSnapshotRow(
+                debate_id=debate_id,
+                version=int(snap.get("version") or 0),
+                round=int(snap.get("round") or 0),
+                active_node=snap.get("active_node"),
+                control=views.get("control", ""),
+                argument=views.get("argument", ""),
+                payload_json={
+                    "version": snap.get("version"), "round": snap.get("round"),
+                    "state": snap.get("state"), "active": snap.get("active"),
+                    "added_nodes": snap.get("added_nodes") or [],
+                    "added_edges": snap.get("added_edges") or [],
+                    "added_flow": snap.get("added_flow") or [],
+                    "converged": bool(snap.get("converged")),
+                    "terminated": bool(snap.get("terminated")),
+                    "branch": snap.get("branch"),
+                },
+            ))
