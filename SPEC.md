@@ -428,7 +428,8 @@ event: error         data: {"message":"…"}
 
 | 组件 | 规格 |
 |---|---|
-| `PhaseTimeline` | 13 环节点（full）/ 5 点（lite），当前高亮、已完成打勾；点击已完成节点滚动定位 |
+| `PhaseTimeline` | 11 环节点（full）/ 8 点（lite，含主席开场与致辞），当前高亮 |
+| `WorkflowGraph` | 流程同步图（v2.4）：逐环节成行——正方席位在左、反方在右、主席/评委占整行；与 SSE 状态实时联动（当前环节脉冲高亮、各侧发言人/条数/「正在发言」实时刷新、评审环节显示心跳进度）；质询与攻辩行以双向箭头标出「谁问谁」；点击任一席位跳转到该环节的发言记录。纯 SVG 实现，无新增依赖 |
 | `SpeechCard` | 左侧阵营色条 + 名牌（`正方·二辩`）；正文纯文本渲染（**禁止 `dangerouslySetInnerHTML`**，防 XSS）；旁注渲染为灰色徽标行；`interrupted` 显示 `已被打断` 徽标 |
 | `TimerBar` | 由该环节累计 `word_count / budget` 计算进度（无逐字动画）；warning/time_up 时变色并复现旁注 |
 | `ScoreBoard` | @ant-design/charts 雷达图（六维 × 双方）+ 团体总分柱状 + 各评委票型 |

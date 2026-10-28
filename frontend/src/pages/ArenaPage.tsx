@@ -13,6 +13,7 @@ import { SpeechCard } from "../components/SpeechCard";
 import { StreamingCard } from "../components/StreamingCard";
 import { TimerBar } from "../components/TimerBar";
 import { VerdictBanner } from "../components/VerdictBanner";
+import { WorkflowGraph } from "../components/WorkflowGraph";
 import { useDebateStream } from "../hooks/useDebateStream";
 import { useDebateStore } from "../stores/debateStore";
 
@@ -53,7 +54,25 @@ export default function ArenaPage() {
 
   const [activeTab, setActiveTab] = useState("framework");
   const [showJump, setShowJump] = useState(false);
+  /**
+   * 流程同步图 → 辩论记录 的跳转：先切 Tab，等面板真正可见后再滚动，
+   * 否则对 display:none 的隐藏面板调用 scrollIntoView 不生效（antd Tabs 保留挂载）。
+   */
+  const [pendingSeq, setPendingSeq] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (pendingSeq === null) return;
+    const el = document.getElementById(`speech-${pendingSeq}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setPendingSeq(null);
+  }, [pendingSeq, activeTab]);
+
+  const jumpToPhase = (target: number) => {
+    const first = speeches.find((s) => s.phase === target);
+    setActiveTab("record");
+    if (first) setPendingSeq(first.seq);
+  };
 
   // 归档回看场景：verdict 事件不参与重放，用详情接口数据兜底构造（CONSTRAINTS B5：DB 为唯一事实来源）
   const derivedVerdict: Verdict | null = useMemo(() => {
@@ -168,7 +187,9 @@ export default function ArenaPage() {
       {storeError && status === "failed" && <div className="neu-chip danger">{storeError}</div>}
 
       {speeches.map((speech) => (
-        <SpeechCard key={speech.seq} speech={speech} active={running && speech.seq === latestSeq} />
+        <div key={speech.seq} id={`speech-${speech.seq}`} style={{ scrollMarginTop: 150 }}>
+          <SpeechCard speech={speech} active={running && speech.seq === latestSeq} />
+        </div>
       ))}
       {running && streaming && (
         <StreamingCard speaker={streaming.speaker} camp={streaming.camp} text={streaming.text} />
@@ -192,6 +213,28 @@ export default function ArenaPage() {
       ) : null,
     },
     { key: "record", label: `💬 辩论记录${speeches.length ? `（${speeches.length}）` : ""}`, children: recordTab },
+    {
+      key: "flow",
+      label: "🗺 流程同步",
+      children: (
+        <WorkflowGraph
+          format={format}
+          currentPhase={phase}
+          speeches={speeches}
+          status={status ?? detail?.status ?? null}
+          streamingCamp={streaming?.camp ?? null}
+          streamingSpeaker={streaming?.speaker ?? null}
+          judgingNote={
+            judgingProgress
+              ? `${judgingProgress.stage}${["评审", "完成"].includes(judgingProgress.stage)
+                ? ` ${judgingProgress.completed}/${judgingProgress.total}`
+                : ""} · ${Math.round(judgingProgress.elapsed)}s`
+              : null
+          }
+          onSelectPhase={jumpToPhase}
+        />
+      ),
+    },
     { key: "qc", label: `🧐 质检报告${fallacyCount ? `（${fallacyCount}）` : ""}`, children: <FallacyReport speeches={speeches} /> },
     { key: "judge", label: "⭐ 评委打分", children: (
       <div>

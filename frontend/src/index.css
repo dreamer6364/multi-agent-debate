@@ -729,3 +729,40 @@ a.neu-btn-accent.hero-btn { color: #fff; }
   background: var(--neu-bg); color: var(--accent); font-size: 15px; font-weight: 700;
   box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light);
 }
+
+/* ===== 流程同步图（WorkflowGraph）：与直播状态联动的赛程可视化 ===== */
+.wf-wrap { padding: 4px 2px 8px; }
+.wf-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.wf-title { font-size: 15px; font-weight: 700; color: var(--ink); }
+.wf-sub { font-size: 12px; font-weight: 400; color: var(--ink-3); margin-left: 8px; }
+.wf-legend { display: flex; gap: 14px; font-size: 12px; color: var(--ink-2); }
+.wf-key { display: inline-flex; align-items: center; gap: 6px; }
+.wf-key i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+.wf-status {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 9px 14px; margin-bottom: 12px; border-radius: 12px;
+  background: var(--neu-bg); font-size: 12.5px; color: var(--ink-2);
+  box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light);
+}
+.wf-step { font-weight: 700; color: var(--ink); }
+.wf-live { display: inline-flex; align-items: center; gap: 7px; color: var(--accent-deep); font-weight: 600; }
+.wf-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent); animation: wf-blink 1.4s ease-in-out infinite;
+}
+.wf-bar { display: flex; gap: 4px; margin-left: auto; align-items: center; }
+.wf-seg { width: 18px; height: 6px; border-radius: 3px; background: var(--neu-dark); opacity: 0.45; }
+.wf-seg.done { background: var(--accent); opacity: 0.55; }
+.wf-seg.active { background: var(--accent); opacity: 1; animation: wf-blink 1.8s ease-in-out infinite; }
+
+.wf-card:hover > rect:first-of-type { filter: brightness(1.03); }
+.wf-note { font-size: 12px; color: var(--ink-3); margin: 10px 2px 0; line-height: 1.7; }
+
+.wf-pulse { animation: wf-pulse 2.4s ease-in-out infinite; }
+.wf-dot-svg { animation: wf-blink 1.4s ease-in-out infinite; }
+@keyframes wf-pulse { 0% { opacity: 0.6; } 70% { opacity: 0.08; } 100% { opacity: 0.6; } }
+@keyframes wf-blink { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }

@@ -6,6 +6,7 @@ import { FrameworkPanel } from "./FrameworkPanel";
 import { JudgeReasonCards } from "./JudgeReasonCards";
 import { PhaseTimeline } from "./PhaseTimeline";
 import { RichText } from "./RichText";
+import { WorkflowGraph } from "./WorkflowGraph";
 import { ScoreBoard } from "./ScoreBoard";
 import { SpeechCard, roleDisplay } from "./SpeechCard";
 
@@ -240,5 +241,72 @@ describe("RichText", () => {
   it("流式半截文本（加粗未闭合）也不会把星号漏到屏幕上", () => {
     const { container } = render(<RichText text={"**定义与判"} />);
     expect(container.textContent).toBe("定义与判");
+  });
+});
+
+describe("WorkflowGraph", () => {
+  const say = (seq: number, phase: number, camp: LiveSpeech["camp"], speaker: string): LiveSpeech => ({
+    seq, speaker, camp, text: "发言", interrupted: false, side_notes: [], phase, word_count: 100,
+  });
+
+  it("FE-CMP-10 随直播高亮当前环节，并统计各侧发言条数", () => {
+    const { container } = render(
+      <WorkflowGraph
+        format="full"
+        currentPhase={3}
+        status="running"
+        speeches={[say(1, 2, "pro", "pro-1"), say(2, 2, "con", "con-1"), say(3, 3, "con", "con-2")]}
+        streamingCamp="pro"
+        streamingSpeaker="pro-2"
+      />,
+    );
+    // full 赛制 11 个环节全部渲染
+    expect(container.querySelectorAll("[data-testid^='wf-phase-']").length).toBe(11);
+    // 已完成的立论为 done，当前质询为 active，后续环节 pending
+    expect(container.querySelector("[data-testid='wf-phase-2']")?.getAttribute("data-state")).toBe("done");
+    expect(container.querySelector("[data-testid='wf-phase-3']")?.getAttribute("data-state")).toBe("active");
+    expect(container.querySelector("[data-testid='wf-phase-7']")?.getAttribute("data-state")).toBe("pending");
+    // 立论两侧各 1 条，质询正方席位显示「发言中」
+    const proSlot = container.querySelector("[data-testid='wf-slot-2-pro']");
+    expect(proSlot?.textContent).toContain("1 条");
+    expect(container.querySelector("[data-testid='wf-slot-3-pro']")?.textContent).toContain("发言中");
+    // 状态条给出步骤进度
+    expect(container.querySelector("[data-testid='wf-status']")?.textContent).toContain("第 3/11 步");
+    cleanup();
+  });
+
+  it("FE-CMP-11 质询/攻辩行画出「谁向谁」的双向箭头，lite 只渲染 8 环节", () => {
+    const lite = render(
+      <WorkflowGraph format="lite" currentPhase={2} status="running" speeches={[]} />,
+    );
+    expect(lite.container.querySelectorAll("[data-testid^='wf-phase-']").length).toBe(8);
+    // lite 无质询/攻辩，不应出现交叉箭头标签
+    expect(lite.container.textContent).not.toContain("质询");
+    cleanup();
+
+    const full = render(
+      <WorkflowGraph format="full" currentPhase={3} status="running" speeches={[]} />,
+    );
+    const qc = full.container.querySelector("[data-testid='wf-phase-3']");
+    expect(qc?.textContent).toContain("质询");
+    expect(qc?.querySelectorAll("line[marker-start]").length).toBe(1); // 双向箭头
+    cleanup();
+  });
+
+  it("FE-CMP-12 已结束场次不再有高亮环节；点击席位回传环节号", () => {
+    const seen: number[] = [];
+    const { container } = render(
+      <WorkflowGraph
+        format="lite"
+        currentPhase={11}
+        status="finished"
+        speeches={[say(1, 2, "pro", "pro-1"), say(2, 11, "neutral", "chair")]}
+        onSelectPhase={(p) => seen.push(p)}
+      />,
+    );
+    expect(container.querySelectorAll("[data-state='active']").length).toBe(0);
+    fireEvent.click(container.querySelector("[data-testid='wf-slot-2-pro']")!);
+    expect(seen).toEqual([2]);
+    cleanup();
   });
 });
