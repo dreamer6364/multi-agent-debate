@@ -205,7 +205,8 @@ def test_elenchus_items_analyzed_in_parallel(monkeypatch):
     lock = threading.Lock()
     inflight = {"cur": 0, "max": 0}
 
-    def fake_analyze_one(text, check="fallacy", timeout=45.0, mode="inproc", client=None):
+    def fake_analyze_one(text, check="fallacy", timeout=45.0, mode="inproc", client=None,
+                         sensitivity=None):
         with lock:
             inflight["cur"] += 1
             inflight["max"] = max(inflight["max"], inflight["cur"])
@@ -261,6 +262,7 @@ def test_judge_speed_config_defaults():
     assert cfg.judges.qc_join_wait_seconds <= 12.0
     assert cfg.judges.qc_final_wait_seconds <= 12.0
     assert cfg.tools.elenchus.parallel >= 4
+    assert cfg.tools.elenchus.sensitivity == "strict"  # v2.6 质检默认最严格档
 
 
 def test_qc_join_wait_comes_from_config(monkeypatch):
@@ -296,3 +298,49 @@ def test_qc_join_wait_comes_from_config(monkeypatch):
     assert len(result["scorecards"]) == 3
     # 质检 1.0s 完成，收尾收割上限 0.5s：总耗时被两个配置值夹住，绝不回到 20+30s
     assert elapsed < 3.0, f"质检等待未按配置收紧：{elapsed:.2f}s"
+
+
+def test_judge_instruction_has_hard_constraint():
+    """v2.6 硬性约束写进提示词：点评不得留空/写「无」，每条必须引用+理由。"""
+    from debate.engine.nodes.judges import _judge_instruction
+    text = _judge_instruction(DebateFormat.FULL)
+    assert "不允许留空" in text and "「无」" in text
+    assert "说明理由" in text
+
+
+def test_abstain_cards_get_rescued_commentary(monkeypatch):
+    """v2.6 兜底：评委三次输出都非法 → 弃权卡也必须有点评（实录立论主干 + 质检谬误标注）。"""
+    from debate.engine.tools import elenchus as elenchus_module
+
+    def qc(*_a, **_k):
+        return ("【机器论证分析】", [
+            {"seq": 1, "camp": "pro", "speaker": "pro-1", "name": "稻草人",
+             "quote": "对方样本只覆盖城市", "explanation": "曲解对方判准", "confidence": "高"},
+        ])
+
+    monkeypatch.setattr(elenchus_module, "analyze_speeches_detailed", qc)
+
+    class _BadBackend:
+        def complete(self, *_a, **_k):
+            return SimpleNamespace(text="这不是 JSON", prompt_tokens=1, completion_tokens=1)
+
+    ctx, _events = _ctx_with_events(_BadBackend(), timeout=10.0)
+    ctx.config.tools.elenchus = SimpleNamespace(
+        enabled=True, per_camp=1, check="fallacy", timeout_seconds=5.0,
+        mode="inproc", total_budget_seconds=0.2, parallel=2, sensitivity="strict",
+    )
+    transcript = [
+        _speech(1, Camp.PRO, "pro-1", "我方认为技术是人的延伸，它扩展了能力边界。这是本场立论的核心主张，后文全部论证围绕它展开。"),
+        _speech(2, Camp.CON, "con-1", "然而依赖不等于失控，警惕恰恰是理性的表现。这是反方的根本立场，所有质询都以此为锚。"),
+    ]
+    node = make_judging_node(ctx)
+    result = node({"transcript": transcript, "digest": Digest(), "scorecards": None})
+
+    assert result["scorecards"] and all(c.abstained for c in result["scorecards"])
+    for card in result["scorecards"]:
+        assert card.rescued, "弃权卡必须标记 rescued"
+        # 亮点栏：双方都有来自实录的立论主干引用，绝不允许空白
+        assert card.highlights.get(Camp.PRO) and "“" in card.highlights[Camp.PRO][0]
+        assert card.highlights.get(Camp.CON) and "“" in card.highlights[Camp.CON][0]
+    # 不足栏：来自机器质检的真实谬误标注
+    assert any("稻草人" in w for c in result["scorecards"] for w in c.weaknesses.get(Camp.PRO, []))

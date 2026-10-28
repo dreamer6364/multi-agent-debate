@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -38,6 +39,10 @@ def _judge_instruction(fmt) -> str:
         'vote（"pro" 或 "con"）；best_speaker（全场最佳辩手 role_id）；'
         "highlights 与 weaknesses（各含 pro/con 两侧，每侧 2~3 条，每条必须用引号引用具体发言原话）。"
         "你的侧重见角色文件；打分与点评结论必须自洽。"
+        "硬性约束：highlights 与 weaknesses 四侧一律不允许留空、不允许写「无」或「没有明显亮点」——"
+        "全场发言记录已完整提供，必然存在可点评的内容，你必须选出具体的部分来点评；"
+        "每条点评 = 引用一句具体原话 + 说明理由（为什么成立/为什么有问题/为什么值得注意），"
+        "只引用不解释视为不合格。"
     )
 
 
@@ -59,6 +64,43 @@ def _judge_summary_text(card: ScoreCard) -> str:
         f"正方亮点：{join(card.highlights, Camp.PRO)}。反方亮点：{join(card.highlights, Camp.CON)}。"
         f"正方不足：{join(card.weaknesses, Camp.PRO)}。反方不足：{join(card.weaknesses, Camp.CON)}。"
     )
+
+
+def _first_sentence(text: str, limit: int = 60) -> str:
+    """取第一句（自然句末标点优先），兜底点评的引用来源。"""
+    text = re.sub(r"\s+", "", text or "")
+    for sep in ("。", "！", "？", "；"):
+        idx = text.find(sep)
+        if 0 < idx < limit:
+            return text[: idx + 1]
+    return text[:limit]
+
+
+def _rescue_commentary(card: ScoreCard, transcript: list[Speech], marks: list[dict]) -> None:
+    """弃权卡兜底点评（v2.6）：评审环节不允许出现空白点评。
+
+    点评内容不是编造的观点：亮点取该方最长的实质发言（立论主干），不足取机器质检
+    的谬误标注（quote+explanation 都来自真实记录）；card.rescued 如实标记，
+    前端据此展示"含系统兜底点评"。
+    """
+    for camp in (Camp.PRO, Camp.CON):
+        pool = [s for s in transcript if s.camp is camp and s.text]
+        if pool and not card.highlights.get(camp):
+            core = max(pool, key=lambda s: len(s.text))
+            quote = _first_sentence(core.text)
+            if quote:
+                card.highlights[camp] = [
+                    f"“{quote}”——{core.speaker} 的这一论点构成本方立论主干（篇幅与论证密度最高）"
+                ]
+        fall = [m for m in marks if m.get("camp") == camp.value and m.get("quote")]
+        if fall and not card.weaknesses.get(camp):
+            card.weaknesses[camp] = [
+                f"“{(m.get('quote') or '')[:60]}”——{m.get('name', '论证瑕疵')}："
+                f"{(m.get('explanation') or '')[:60]}"
+                for m in fall[:2]
+            ]
+    if any(card.highlights.values()) or any(card.weaknesses.values()):
+        card.rescued = True
 
 
 def _run_bounded(fn, budget: float):
@@ -147,6 +189,7 @@ def make_judging_node(ctx: DebateContext):
                         [s for s in base if s.camp is not Camp.NEUTRAL],
                         per_camp=getattr(elenchus_cfg, "per_camp", 2),
                         check=getattr(elenchus_cfg, "check", "fallacy"),
+                        sensitivity=getattr(elenchus_cfg, "sensitivity", "strict"),
                         timeout=getattr(elenchus_cfg, "timeout_seconds", 45.0),
                         mode=getattr(elenchus_cfg, "mode", "inproc"),
                         total_budget=qc_budget,
@@ -226,8 +269,9 @@ def make_judging_node(ctx: DebateContext):
                         {"role": "assistant", "content": result.text},
                         {"role": "user", "content": (
                             f"你的输出不合格式：{exc}。请重新只输出一个 JSON 对象，"
-                            "并修正以下常见问题：1) highlights/weaknesses 每侧 2~3 条，"
-                            "且每条用引号引用具体发言原话；2) best_speaker 使用连字符格式"
+                            "并修正以下常见问题：1) highlights/weaknesses 每侧至少 1 条"
+                            "（建议 2~3 条），每条用引号引用具体发言原话并说明理由，"
+                            "绝不允许留空或写「无」；2) best_speaker 使用连字符格式"
                             "（如 pro-3 / con-2）；3) 不要输出 JSON 以外的任何文字。"
                         )},
                     ]
@@ -283,6 +327,11 @@ def make_judging_node(ctx: DebateContext):
         # 收尾补收割：评审结束时质检通常早已完成（两者并行）；只再等有限时间，
         # 质检彻底挂死时宁可放弃标注也绝不拖住宣判（有界纪律）
         collect_qc(QC_FINAL_WAIT)
+        # v2.6 硬性约束兜底：弃权卡不得留空白点评——用实录与质检标注补出可点评的部分。
+        # 放在 collect_qc 之后：谬误标注此时已收割完毕，不足栏有真实素材可引。
+        for card in cards:
+            if card.abstained:
+                _rescue_commentary(card, base, machine_marks)
         emit_progress(stage="完成", completed=len(cards))
         ctx.emit("phase_end", phase=phase)
         return {"transcript": base + new, "scorecards": cards, "machine_marks": machine_marks}

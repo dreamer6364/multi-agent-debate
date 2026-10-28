@@ -459,6 +459,7 @@ def make_verdict_node(ctx: DebateContext):
                      "judge": c.judge, "focus": c.focus,
                      "vote": c.vote.value if c.vote else None,
                      "best_speaker": c.best_speaker, "abstained": c.abstained,
+                     "rescued": c.rescued,
                      "pro_total": sum(c.pro_scores.values()),
                      "con_total": sum(c.con_scores.values()),
                      "pro_scores": c.pro_scores, "con_scores": c.con_scores,

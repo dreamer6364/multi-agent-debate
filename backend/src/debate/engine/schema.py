@@ -84,6 +84,7 @@ class ScoreCard(BaseModel):
     highlights: dict[Camp, list[str]] = Field(default_factory=dict)
     weaknesses: dict[Camp, list[str]] = Field(default_factory=dict)
     abstained: bool = False
+    rescued: bool = False  # v2.6：弃权卡的点评由系统按实录+质检标注兜底生成（前端如实标注）
 
 
 class Verdict(BaseModel):

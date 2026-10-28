@@ -357,6 +357,11 @@ body {
 .jr-vote.pro { color: var(--accent-deep); }
 .jr-vote.con { color: var(--con-deep); }
 .jr-vote.abstain { color: var(--ink-3); }
+/* v2.6：弃权卡由系统按实录+质检标注兜底生成点评时如实标注 */
+.jr-rescued {
+  font-size: 11px; font-weight: 600; color: var(--judge-deep, #8a6d1f);
+  background: #f7f2e3; border-radius: 999px; padding: 2px 8px;
+}
 .jr-cols { display: flex; flex-direction: column; gap: 8px; }
 .jr-block { display: flex; gap: 8px; align-items: flex-start; }
 .jr-label {

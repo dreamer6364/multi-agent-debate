@@ -30,7 +30,7 @@ class ElenchusUnavailable(Exception):
     pass
 
 
-def _analyze_inproc(text: str, check: str, timeout: float) -> dict:
+def _analyze_inproc(text: str, check: str, timeout: float, *, sensitivity: str | None = None) -> dict:
     """超时即放弃——**绝不能用 `with ThreadPoolExecutor`**。
 
     `with` 退出时执行 `shutdown(wait=True)`：若 elenchus 内部的 LLM 调用卡在网络上
@@ -44,7 +44,7 @@ def _analyze_inproc(text: str, check: str, timeout: float) -> dict:
     _configure_provider_env()
     pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="elenchus")
     try:
-        future = pool.submit(analyze_text, text, check=check, sensitivity=None)
+        future = pool.submit(analyze_text, text, check=check, sensitivity=sensitivity)
         return future.result(timeout=timeout)
     except TimeoutError:
         future.cancel()  # 排队中的任务取消；已运行的线程无法强杀，交由不等待的 shutdown
@@ -111,10 +111,10 @@ class _McpStdioClient:
         self._proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
         self._proc.stdin.flush()
 
-    def call_analyze(self, text: str, check: str) -> dict:
+    def call_analyze(self, text: str, check: str, *, sensitivity: str | None = None) -> dict:
         result = self._send("tools/call", {
             "name": "analyze",
-            "arguments": {"text": text, "check": check, "sensitivity": None},
+            "arguments": {"text": text, "check": check, "sensitivity": sensitivity},
         })
         content = (result.get("content") or [{}])[0].get("text", "{}")
         try:
@@ -131,18 +131,25 @@ class _McpStdioClient:
 
 
 def analyze_one(text: str, check: str = "fallacy", timeout: float = 45.0,
-                mode: str = "inproc", client: _McpStdioClient | None = None) -> dict:
-    """单条分析；inproc 走库，mcp 走 stdio 子进程。"""
+                mode: str = "inproc", client: _McpStdioClient | None = None,
+                sensitivity: str | None = None) -> dict:
+    """单条分析；inproc 走库，mcp 走 stdio 子进程。
+
+    v2.6：sensitivity 透传给 elenchus（lenient/balanced/strict，默认 balanced）。
+    """
     if mode == "mcp":
         if client is None:
             raise ElenchusUnavailable("mcp 模式需传入已建立的 client")
-        return client.call_analyze(text, check)
-    return _analyze_inproc(text, check, timeout)
+        return client.call_analyze(text, check, sensitivity=sensitivity)
+    return _analyze_inproc(text, check, timeout, sensitivity=sensitivity)
 
 
 def _collect_findings(speech: Speech, result: dict, findings_lines: list[str], marks: list[dict]) -> None:
-    """把单条分析结果归并为注入行与 marks（主线程调用，无锁竞争）。"""
-    for f in (result.get("findings") or [])[:4]:
+    """把单条分析结果归并为注入行与 marks（主线程调用，无锁竞争）。
+
+    v2.6：单条上限 4 → 7——strict 档位最多报 7 条，截 4 会把更严格的报告掐回去。
+    """
+    for f in (result.get("findings") or [])[:7]:
         name = f.get("name", "?")
         quote = (f.get("quote") or "")[:60]
         conf = f.get("confidence", "?")
@@ -158,6 +165,7 @@ def analyze_speeches_detailed(speeches: list[Speech], *, per_camp: int = 2, chec
                               timeout: float = 45.0, mode: str = "inproc",
                               total_budget: float | None = None,
                               parallel: int = 1,
+                              sensitivity: str | None = None,
                               on_progress: Any = None) -> tuple[str, list[dict]]:
     """对双方核心论点（每方最长的 per_camp 条辩手发言）做谬误检测，渲染注入段。
 
@@ -171,6 +179,8 @@ def analyze_speeches_detailed(speeches: list[Speech], *, per_camp: int = 2, chec
     v2.4 新增 parallel（仅 inproc 模式生效）：多条核心论点交给线程池同时分析，
     质检墙钟时间从 Σ单条 压到 ≈最慢单条。预算纪律不变：as_completed 按 total_budget
     收割，超时未完成的直接放弃（对应线程由 shutdown(wait=False) 遗弃，不阻塞调用方）。
+
+    v2.6 新增 sensitivity：透传给 elenchus 的严格度档位（lenient/balanced/strict）。
     """
     try:
         from elenchus.core.analyzer import analyze_text  # noqa: F401 —— 可用性探测
@@ -204,7 +214,8 @@ def analyze_speeches_detailed(speeches: list[Speech], *, per_camp: int = 2, chec
             workers = max(1, min(int(parallel), len(picked)))
             pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="elenchus-qc")
             futures = {
-                pool.submit(analyze_one, s.text, check=check, timeout=timeout, mode=mode): s
+                pool.submit(analyze_one, s.text, check=check, timeout=timeout, mode=mode,
+                            sensitivity=sensitivity): s
                 for s in picked
             }
             done_count = 0
@@ -231,7 +242,7 @@ def analyze_speeches_detailed(speeches: list[Speech], *, per_camp: int = 2, chec
                 notify(idx)
                 try:
                     result = analyze_one(speech.text, check=check, timeout=min(timeout, remaining),
-                                         mode=mode, client=client)
+                                         mode=mode, client=client, sensitivity=sensitivity)
                 except Exception:  # noqa: BLE001 —— 单条失败跳过
                     continue
                 _collect_findings(speech, result, findings_lines, marks)

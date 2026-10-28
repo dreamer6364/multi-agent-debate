@@ -13,7 +13,7 @@ def _speech(seq, camp, text, speaker="pro-1"):
 def test_analyze_speeches_renders_findings(monkeypatch):
     from debate.engine.tools import elenchus as et
 
-    def fake_analyze(text, check="fallacy", sensitivity=None):
+    def fake_analyze(text, check="fallacy", timeout=45.0, sensitivity=None):
         assert check == "fallacy"
         return {"overall": "x", "findings": [
             {"name": "Ad hominem", "quote": "你反对就是嫉妒", "explanation": "e", "confidence": "high"},
@@ -43,7 +43,7 @@ def test_analyze_speeches_per_failure_skipped(monkeypatch):
 
     calls = {"n": 0}
 
-    def flaky(text, check="fallacy", sensitivity=None):
+    def flaky(text, check="fallacy", timeout=45.0, sensitivity=None):
         calls["n"] += 1
         raise RuntimeError("这条炸了")
 
@@ -88,7 +88,7 @@ def test_analyze_speeches_total_budget_stops_early(monkeypatch):
 
     called = {"n": 0}
 
-    def slow(text, check="fallacy", sensitivity=None):
+    def slow(text, check="fallacy", timeout=45.0, sensitivity=None):
         called["n"] += 1
         import time as _t
         _t.sleep(0.5)
@@ -159,3 +159,34 @@ def test_mcp_stdio_client_protocol(tmp_path, monkeypatch):
         assert result["findings"][0]["name"] == "Strawman"
     finally:
         client.close()
+
+
+def test_sensitivity_strict_passed_through(monkeypatch):
+    """v2.6：sensitivity 配置透传到 analyze_one（parallel 与顺序两条路径都要带上）。"""
+    from debate.engine.tools import elenchus as et
+
+    seen: list[str | None] = []
+
+    def fake_analyze_one(text, check="fallacy", timeout=45.0, mode="inproc", client=None,
+                         sensitivity=None):
+        seen.append(sensitivity)
+        return {"findings": [{"name": "循环论证", "quote": text[:8],
+                              "explanation": "用主张自证主张", "confidence": "low"}]}
+
+    monkeypatch.setattr(et, "analyze_one", fake_analyze_one)
+    speeches = [_speech(1, Camp.PRO, "正方立论" * 20), _speech(2, Camp.CON, "反方立论" * 20, "con-1")]
+
+    et.analyze_speeches_detailed(speeches, per_camp=1, timeout=5.0, total_budget=10.0,
+                                 parallel=1, sensitivity="strict")
+    assert seen and all(s == "strict" for s in seen)
+
+
+def test_collect_findings_cap_is_seven():
+    """v2.6：strict 档最多报 7 条，单条归并上限从 4 放宽到 7。"""
+    from debate.engine.tools.elenchus import _collect_findings
+
+    result = {"findings": [{"name": f"瑕疵{i}", "quote": f"引用{i}", "explanation": "x",
+                            "confidence": "low"} for i in range(9)]}
+    lines, marks = [], []
+    _collect_findings(_speech(1, Camp.PRO, "立论文本"), result, lines, marks)
+    assert len(lines) == 7 and len(marks) == 7

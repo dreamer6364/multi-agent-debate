@@ -184,6 +184,8 @@ async def get_debate(debate_id: int, user=Depends(get_current_user),
         "scorecards": [{
             "judge": c.judge, "focus": c.focus, "vote": c.vote,
             "best_speaker": c.best_speaker, "abstained": c.abstained,
+            # v2.6：弃权但带点评 = 系统按实录+质检标注兜底生成（与引擎的 card.rescued 同义）
+            "rescued": bool(c.abstained and (c.highlights_json or c.weaknesses_json)),
             "pro_total": sum((c.scores_json or {}).get("pro_scores", {}).values()),
             "con_total": sum((c.scores_json or {}).get("con_scores", {}).values()),
             "pro_scores": (c.scores_json or {}).get("pro_scores", {}),

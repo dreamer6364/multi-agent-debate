@@ -102,6 +102,9 @@ class ElenchusConfig(BaseModel):
     enabled: bool = True
     mode: str = "inproc"      # inproc（进程内直调，稳定）| mcp（stdio JSON-RPC 子进程）
     check: str = "fallacy"    # fallacy / rhetoric / bias / scam / all
+    # v2.6 严格度档位（透传 elenchus）：lenient 只报高置信 / balanced（库默认）/
+    # strict 连低置信的细微问题也报并标 low confidence（最多 7 条）。
+    sensitivity: str = "strict"
     per_camp: int = 2         # 每方分析的核心论点数
     timeout_seconds: float = 45.0
     total_budget_seconds: float = 90.0  # 质检总预算：耗尽即停，绝不拖住评委阶段

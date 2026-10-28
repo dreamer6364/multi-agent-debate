@@ -207,6 +207,28 @@ describe("FrameworkPanel / JudgeReasonCards", () => {
     expect(panel.textContent).toContain("数据来源未说明");
     cleanup();
   });
+
+  it("FE-CMP-15 弃权卡带兜底点评时标注 rescued，正常卡不标", () => {
+    const rescued: ScorecardSummary[] = [{
+      judge: "judge-logic", focus: "论证链条", vote: null, best_speaker: null,
+      abstained: true, rescued: true, pro_total: 0, con_total: 0,
+      highlights: { pro: ["“我方认为技术是人的延伸”——pro-1 的立论主干"] },
+      weaknesses: { con: ["“依赖不等于失控”——稻草人谬误：曲解对方判准"] },
+    }];
+    render(<JudgeReasonCards cards={rescued} />);
+    expect(screen.getByTestId("jr-rescued").textContent).toContain("含系统兜底点评");
+    expect(screen.getByTestId("judge-reasons").textContent).toContain("立论主干");
+    cleanup();
+
+    const normal: ScorecardSummary[] = [{
+      judge: "judge-content", focus: "论据", vote: "con", best_speaker: "con-1",
+      abstained: false, pro_total: 70, con_total: 80,
+      highlights: { con: ["“数据说话”引证扎实"] },
+    }];
+    render(<JudgeReasonCards cards={normal} />);
+    expect(screen.queryByTestId("jr-rescued")).toBeNull();
+    cleanup();
+  });
 });
 
 describe("PhaseTimeline", () => {

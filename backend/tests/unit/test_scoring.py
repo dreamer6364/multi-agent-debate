@@ -61,11 +61,17 @@ def test_parse_score_out_of_range():
         parse_scorecard(raw(bad), judge="j", focus="logic", fmt=DebateFormat.FULL)
 
 
-def test_parse_highlight_count_must_be_2_to_3():
-    bad = json.loads(json.dumps(GOOD))
-    bad["highlights"]["pro"] = ["只有一条“点评”"]
+def test_parse_highlight_allows_one_but_not_zero():
+    """v2.6：每侧放宽到 1~3 条——只有 1 条合格点评时收下，好过弃权成空白卡；0 条仍拒绝。"""
+    one = json.loads(json.dumps(GOOD))
+    one["highlights"]["pro"] = ["只有一条“点评”"]
+    parsed = parse_scorecard(raw(one), judge="j", focus="logic", fmt=DebateFormat.FULL)
+    assert parsed.highlights[Camp.PRO] == ["只有一条“点评”"]
+
+    zero = json.loads(json.dumps(GOOD))
+    zero["highlights"]["pro"] = []
     with pytest.raises(ScoreParseError):
-        parse_scorecard(raw(bad), judge="j", focus="logic", fmt=DebateFormat.FULL)
+        parse_scorecard(raw(zero), judge="j", focus="logic", fmt=DebateFormat.FULL)
 
 
 def test_parse_highlight_must_quote():

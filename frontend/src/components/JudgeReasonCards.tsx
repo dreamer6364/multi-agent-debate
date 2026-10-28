@@ -50,6 +50,7 @@ export function JudgeReasonCards({ cards }: { cards: ScorecardSummary[] }) {
               <span className={`jr-vote ${card.vote ?? "abstain"}`}>
                 {card.vote ? `投 ${CAMP_NAME[card.vote]}` : "弃权"}
               </span>
+              {card.rescued && <span className="jr-rescued" data-testid="jr-rescued">含系统兜底点评</span>}
             </div>
             {basis && (
               <p className="jr-basis">

@@ -70,6 +70,8 @@ export interface ScorecardSummary {
   vote: "pro" | "con" | null;
   best_speaker: string | null;
   abstained: boolean;
+  /** v2.6：弃权但带点评 = 系统按实录+质检标注兜底生成（引擎 card.rescued 透传） */
+  rescued?: boolean;
   pro_total: number;
   con_total: number;
   /** 分维明细（statement/rebuttal_cross/attack/free/closing/conduct）——评委打分的具体依据 */

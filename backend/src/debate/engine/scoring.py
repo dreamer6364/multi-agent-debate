@@ -92,10 +92,12 @@ def parse_scorecard(raw: str, *, judge: str, focus: str, fmt: DebateFormat) -> S
         result: dict[str, list[str]] = {}
         for side in ("pro", "con"):
             items = obj[side]
-            if not isinstance(items, list) or not (2 <= len(items) <= 3):
-                raise ScoreParseError(f"{key}.{side} 条数须为 2~3")
-            if not all(isinstance(i, str) and _has_quote(i) for i in items):
-                raise ScoreParseError(f"{key}.{side} 须引用原话（引号标注）")
+            # v2.6：1~3 条（原 2~3 硬拒）。评审环节绝不允许空白点评——模型只给出
+            # 1 条合格点评时收下它，好过整轮重试后弃权成空白卡。
+            if not isinstance(items, list) or not (1 <= len(items) <= 3):
+                raise ScoreParseError(f"{key}.{side} 条数须为 1~3（不允许留空）")
+            if not all(isinstance(i, str) and i.strip() and _has_quote(i) for i in items):
+                raise ScoreParseError(f"{key}.{side} 须引用原话（引号标注）且不得为空")
             result[side] = items
         return result
 
