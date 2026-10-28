@@ -253,11 +253,14 @@ v2.2 起 phase 1 与 phase 11 属于"仪式骨架"，两种赛制都必须执行
 | 整场引擎 | `engine.max_duration_seconds`（默认 5400s）+ `cancel_grace_seconds` | 置取消旗标；宽限内未收束则按 `failed` 收尾并发终态 |
 | 收尾落库 | `engine.drain_timeout_seconds`（默认 15s） | 有界等待后放弃，仍发终态 |
 
-**评分环节并行（v2.4）**：质检与评委评审同时开跑——质检在独立线程先行，3 位评委立即并行评审；
-逻辑评委最多等 `min(total_budget, 20s)` 注入质检结论，等不到就先评审（谬误标注完成后仍以 `fallacy`
-事件挂到质检报告）；评审结束时最多再等 30s 补收割。质检内部多条核心论点按 `tools.elenchus.parallel`
-（默认 2）线程池并行分析。评审期 LLM 限速间隔由 `judges.throttle_seconds`（默认 5s）临时覆盖全局值，
-节点结束后恢复。评分环节总耗时从「质检 + 评审」压到「max(质检, 评审)」。
+**评分环节并行（v2.4，v2.6 提速）**：质检与评委评审同时开跑——质检在独立线程先行，3 位评委立即并行评审；
+逻辑评委最多等 `min(total_budget, judges.qc_join_wait_seconds)`（v2.6 默认 10s，原 20s）注入质检结论，
+等不到就先评审（谬误标注完成后仍以 `fallacy` 事件挂到质检报告）；评审结束时最多再等
+`judges.qc_final_wait_seconds`（v2.6 默认 10s，原 30s）补收割。质检内部多条核心论点按
+`tools.elenchus.parallel`（v2.6 默认 4，per_camp=2 时 4 条全并行）线程池并行分析。评审期 LLM 限速
+间隔由 `judges.throttle_seconds`（v2.6 默认 0 = 3 位评委完全并行，原 5s 错峰）临时覆盖全局值，
+节点结束后恢复；宣判后的主席致辞与平局终裁同样套用该宽松限速（`_official_throttle`），避免恢复
+15s 全局间隔后白等一轮。评分环节总耗时从「质检 + 评审」压到「max(质检, 评审)」。
 
 任何路径（含 `_finalize` 写库异常）都必须向总线发出终态 `status` 并关闭总线——否则前端会永久停在"评委合议中"。
 

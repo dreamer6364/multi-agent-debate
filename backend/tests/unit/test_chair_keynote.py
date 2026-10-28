@@ -164,3 +164,45 @@ def test_closing_ceremony_falls_back_off_topic(assets_root, config):
     assert topic.title in closing.text
     assert "正方" in closing.text and "反方" in closing.text
     assert any("兜底" in n for n in closing.side_notes)
+
+
+def test_official_throttle_swaps_and_restores():
+    """v2.6 仪式段限速覆盖：进入 swap 成 judges.throttle_seconds，退出恢复全局值。"""
+    from debate.engine.nodes.officials import _official_throttle
+
+    gateway = SimpleNamespace(min_interval=15.0)
+    ctx = SimpleNamespace(gateway=gateway,
+                          config=SimpleNamespace(judges=SimpleNamespace(throttle_seconds=0.0)))
+    with _official_throttle(ctx):
+        assert gateway.min_interval == 0.0
+    assert gateway.min_interval == 15.0
+
+    # 无覆盖配置（None）→ 不动
+    gw2 = SimpleNamespace(min_interval=15.0)
+    ctx2 = SimpleNamespace(gateway=gw2, config=SimpleNamespace(judges=SimpleNamespace()))
+    with _official_throttle(ctx2):
+        assert gw2.min_interval == 15.0
+
+
+def test_closing_ceremony_uses_loose_throttle(assets_root, config):
+    """v2.6：评分结束后全局 15s 间隔恢复，致辞首调会白等一轮——节点内必须套用宽松限速。"""
+    topic = _topic(assets_root)
+
+    class _ThrottleGw:
+        def __init__(self):
+            self.min_interval = 15.0
+            self.seen: list[float] = []
+
+        def complete(self, messages, **kwargs):  # noqa: ANN001
+            self.seen.append(self.min_interval)
+            return SimpleNamespace(text=GOOD_CLOSING, prompt_tokens=1, completion_tokens=1)
+
+    gateway = _ThrottleGw()
+    ctx = _ctx(config, gateway, topic)
+    node = make_closing_ceremony_node(ctx)
+    verdict = Verdict(votes={Camp.PRO: 2, Camp.CON: 1}, team_totals={Camp.PRO: 90.0, Camp.CON: 83.0},
+                      winner=Camp.PRO, best_speaker="pro-1", decisive_rule="majority")
+    node({"transcript": [], "digest": None, "verdict": verdict})
+
+    assert gateway.seen == [config.judges.throttle_seconds]  # 调用发生在覆盖窗口内
+    assert gateway.min_interval == 15.0                      # 离开节点恢复全局间隔

@@ -34,7 +34,10 @@ judges:
   count: 3                  # 1 | 3 | 5（5 时追加通用评委）
   timeout_seconds: 240.0    # 单评委评审总时长上限（秒）：超时按规则弃权，防止评分环节卡死
   heartbeat_seconds: 10.0   # 评审期进度心跳（秒）：前端显示"已评议 Xs"并作卡死自检
-  throttle_seconds: 5.0     # v2.4 评审期限速覆盖（秒）：3 位评委并行调用只此几次，无需辩论期的保守间隔；0 = 不限速
+  throttle_seconds: 0.0     # v2.6 评审期限速覆盖（秒）：0 = 完全并行，3 位评委同时开跑（省 ~10s 排队）；
+                            # 免费档如遇 429 可回调 2~5
+  qc_join_wait_seconds: 10.0  # v2.6 逻辑评委等质检结论注入的上限（秒）：质检通常秒级完成，到点等不到就先评审
+  qc_final_wait_seconds: 10.0 # v2.6 评审收尾后补收割质检标注的上限（秒）：到点即宣判，绝不拖赛果
 
 engine:                     # v1.9.2 引擎总时限：任何单点卡死都不允许场次永远停在 running
   max_duration_seconds: 5400.0   # 整场硬上限（秒），到点置取消旗标
@@ -61,7 +64,8 @@ tools:
     per_camp: 2              # 每方分析的核心论点数
     timeout_seconds: 45.0    # 单条分析超时
     total_budget_seconds: 90.0  # 质检总预算（耗尽即停，防止拖住评委阶段）
-    parallel: 2              # v2.4 多条核心论点并行分析度（1 = 顺序；mcp 模式强制顺序）
+    parallel: 4              # v2.6 多条核心论点并行分析度（1 = 顺序；mcp 模式强制顺序）；
+                             # per_camp=2 时 4 条全并行，墙钟 ≈ 最慢单条
   agent:                     # v1.8 辩手 Agent 工具循环：LLM 经 function calling 主动调工具共同生成发言
     enabled: true
     max_tool_rounds: 2       # 每条发言最多工具往返轮数（控免费档 RPM 成本）

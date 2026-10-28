@@ -8,6 +8,7 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import re
+from contextlib import contextmanager
 
 from ..agents.context import build_chair_messages
 from ..llm.gateway import LLMExhausted
@@ -19,6 +20,27 @@ from ..sim.conduct import scan, strip_forbidden_format
 from ..sim.digest import render_digest
 from ..sim.timer import TurnClock, truncate_to_sentence, words_for
 from .phases import _emit, next_seq
+
+
+@contextmanager
+def _official_throttle(ctx: DebateContext):
+    """v2.6 仪式段限速覆盖：致辞/终裁只有 1~2 次调用，沿用评审期的宽松间隔。
+
+    评分环节结束后 `judges.py` 会把 `min_interval` 恢复成辩论期的 15s——此后主席致辞
+    的第一次调用会白等 ~15s，用户感知为"评委点完评了，结果半天不出来"。这里临时
+    覆盖为 `judges.throttle_seconds`，离开 with 块即恢复。gateway 无 min_interval
+    （测试桩件）时静默跳过。
+    """
+    gateway = getattr(ctx, "gateway", None)
+    prev = getattr(gateway, "min_interval", None)
+    override = getattr(getattr(ctx.config, "judges", None), "throttle_seconds", None)
+    if prev is not None and override is not None:
+        gateway.min_interval = max(0.0, float(override))
+    try:
+        yield
+    finally:
+        if prev is not None and override is not None:
+            gateway.min_interval = prev
 
 
 # ---- 主席发言守卫（v1.9.2）：辩题锚定 + 中立性 --------------------------
@@ -311,14 +333,16 @@ def _final_arbitration(ctx: DebateContext, state: dict, verdict: Verdict) -> tup
             ])},
         ]
         # v1.9.1：终裁调用限时（含 429 长退避场景），到点即走规则化兜底，绝不让宣判无限等待
+        # v2.6：终裁在评分刚结束、全局 15s 间隔恢复后触发，套用仪式段宽松限速省一次白等
         pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="chair-arbiter")
         try:
-            fut = pool.submit(
-                ctx.gateway.complete, messages, tier="judge",
-                temperature=min(0.3, ctx.config.model.temperature.judge),
-                max_tokens=400,
-            )
-            result = fut.result(timeout=90.0)
+            with _official_throttle(ctx):
+                fut = pool.submit(
+                    ctx.gateway.complete, messages, tier="judge",
+                    temperature=min(0.3, ctx.config.model.temperature.judge),
+                    max_tokens=400,
+                )
+                result = fut.result(timeout=90.0)
         except concurrent.futures.TimeoutError:
             ctx.record_degradation()
             return _rule_tiebreak(state["scorecards"], ctx.format)
@@ -362,19 +386,21 @@ def make_closing_ceremony_node(ctx: DebateContext):
         winner_cn = CAMP_CN[verdict.winner] if verdict and verdict.winner else "正方"
         produced: list[Speech] = []
         ctx.emit("phase_start", phase=phase, name=phase_name, actors=["chair"], budget_words=0)
-        _chair_speak(
-            ctx, base, produced, phase=phase, phase_name=phase_name,
-            instruction=(
-                f"你是本场主席，比赛结果已经宣布，现在做「结束致辞」收束全场。本场辩题是「{ctx.topic.title}」，"
-                f"胜方为{winner_cn}。槽位顺序："
-                "①回望本场辩题留下的真问题（不是复述赛果，而是把观众带出赛场时该带走的那一问）；"
-                "②各用一句话肯定正方与反方在场上最有价值的那次交锋或论证（不比较优劣、不给分数）；"
-                "③致谢评委团与观众，宣布本场比赛结束。"
-                "硬性约束：结果已定，不得改判、不得质疑或解释评委打分；严格中立，不评价谁更强；"
-                "语言干净、有收束感，避免套话与排比堆砌，成段讲述。"
-            ),
-            cap=closing_budget, fallback=_closing_fallback(ctx.topic, winner_cn),
-        )
+        # v2.6：评分结束恢复了 15s 全局间隔，致辞首调会白等一轮——套用仪式段宽松限速
+        with _official_throttle(ctx):
+            _chair_speak(
+                ctx, base, produced, phase=phase, phase_name=phase_name,
+                instruction=(
+                    f"你是本场主席，比赛结果已经宣布，现在做「结束致辞」收束全场。本场辩题是「{ctx.topic.title}」，"
+                    f"胜方为{winner_cn}。槽位顺序："
+                    "①回望本场辩题留下的真问题（不是复述赛果，而是把观众带出赛场时该带走的那一问）；"
+                    "②各用一句话肯定正方与反方在场上最有价值的那次交锋或论证（不比较优劣、不给分数）；"
+                    "③致谢评委团与观众，宣布本场比赛结束。"
+                    "硬性约束：结果已定，不得改判、不得质疑或解释评委打分；严格中立，不评价谁更强；"
+                    "语言干净、有收束感，避免套话与排比堆砌，成段讲述。"
+                ),
+                cap=closing_budget, fallback=_closing_fallback(ctx.topic, winner_cn),
+            )
         ctx.emit("phase_end", phase=phase)
         return {"transcript": base + produced}
 

@@ -53,8 +53,14 @@ class JudgesConfig(BaseModel):
     timeout_seconds: float = 240.0  # 单评委评审总时长上限（超时按规则弃权，绝不阻塞评分环节）
     heartbeat_seconds: float = 10.0  # 评审期进度心跳间隔（前端据此显示"已评议 Xs"，也是卡死自检信号）
     # v2.4：评审期临时覆盖全局限速间隔。评委只有 3 次调用，不需要辩论期那么保守的 15s 间隔——
-    # 3 位评委并行时按 15s 排队会白白多等 ~30s。设 0 关闭评审期限速；None 表示沿用全局值。
-    throttle_seconds: float | None = 5.0
+    # 3 位评委并行时按 15s 排队会白白多等 ~30s。v2.6 默认 0 = 完全并行（3 次调用同时发出，
+    # 重试由 LLM 延迟自然错开）；免费档如遇 429 风暴可回调到 2~5。
+    throttle_seconds: float | None = 0.0
+    # v2.6：逻辑评委等质检结论注入提示词的上限（原硬编码 20s）。质检为进程内分析通常秒级
+    # 完成；到点等不到就先评审，谬误标注完成后仍会以 fallacy 事件挂到质检报告。
+    qc_join_wait_seconds: float = 10.0
+    # v2.6：评审收尾后补收割质检标注的上限（原硬编码 30s）。到点即宣判，绝不拖赛果。
+    qc_final_wait_seconds: float = 10.0
 
     @field_validator("count")
     @classmethod
@@ -99,7 +105,8 @@ class ElenchusConfig(BaseModel):
     per_camp: int = 2         # 每方分析的核心论点数
     timeout_seconds: float = 45.0
     total_budget_seconds: float = 90.0  # 质检总预算：耗尽即停，绝不拖住评委阶段
-    parallel: int = 2         # v2.4：多条核心论点并行分析度（1 = 顺序；mcp 模式强制顺序）
+    parallel: int = 4         # v2.6：多条核心论点并行分析度（1 = 顺序；mcp 模式强制顺序）。
+                              # per_camp=2 时 4 条全并行，墙钟 ≈ 最慢单条，而非 Σ单条
 
 
 class AgentToolsConfig(BaseModel):

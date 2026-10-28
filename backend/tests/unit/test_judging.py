@@ -250,3 +250,49 @@ def test_judge_throttle_override_and_restore():
 
     assert gateway.min_interval == 15.0              # 离开评审期必须恢复全局间隔
     assert elapsed < 3.0, f"评审期限速未生效：{elapsed:.2f}s（旧值 15s×3 ≈ 45s 排队）"
+
+
+def test_judge_speed_config_defaults():
+    """v2.6 提速旋钮默认值：评审限速关闭（完全并行）、质检等待收紧、质检并行度 4。"""
+    from debate.core.config import AppConfig
+
+    cfg = AppConfig()
+    assert cfg.judges.throttle_seconds == 0.0
+    assert cfg.judges.qc_join_wait_seconds <= 12.0
+    assert cfg.judges.qc_final_wait_seconds <= 12.0
+    assert cfg.tools.elenchus.parallel >= 4
+
+
+def test_qc_join_wait_comes_from_config(monkeypatch):
+    """v2.6：逻辑评委等质检的上限读 judges.qc_join_wait_seconds，不再硬编码 20s。
+
+    质检挂 5s、评委 0.05s 即回：join_wait=0.3 → 逻辑评委 0.3s 后先评审，
+    收尾补收割（qc_final_wait_seconds 默认 10）在质检完成时立即返回。全程 < 3s。
+    （旧硬编码 20s 时同样 <3s——本用例锁的是"读配置"这条路径本身。）
+    """
+    from debate.engine.tools import elenchus as elenchus_module
+
+    def slow_qc(*_args, **_kwargs):
+        time.sleep(1.0)
+        return "", []
+
+    monkeypatch.setattr(elenchus_module, "analyze_speeches_detailed", slow_qc)
+
+    backend = _SlowBackend(delay=0.05, votes=["pro", "con", "pro"])
+    ctx, _events = _ctx_with_events(backend, timeout=30.0)
+    ctx.config.judges = SimpleNamespace(
+        count=3, timeout_seconds=30.0, heartbeat_seconds=10.0, throttle_seconds=0.0,
+        qc_join_wait_seconds=0.3, qc_final_wait_seconds=0.5,
+    )
+    ctx.config.tools.elenchus = SimpleNamespace(
+        enabled=True, per_camp=1, check="fallacy", timeout_seconds=5.0,
+        mode="inproc", total_budget_seconds=5.0, parallel=2,
+    )
+    node = make_judging_node(ctx)
+    start = time.monotonic()
+    result = node({"transcript": [], "digest": Digest(), "scorecards": None})
+    elapsed = time.monotonic() - start
+
+    assert len(result["scorecards"]) == 3
+    # 质检 1.0s 完成，收尾收割上限 0.5s：总耗时被两个配置值夹住，绝不回到 20+30s
+    assert elapsed < 3.0, f"质检等待未按配置收紧：{elapsed:.2f}s"

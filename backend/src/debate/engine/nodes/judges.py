@@ -132,8 +132,9 @@ def make_judging_node(ctx: DebateContext):
         elenchus_cfg = ctx.config.tools.elenchus
         qc_enabled = bool(getattr(elenchus_cfg, "enabled", False)) and "judge-logic" in judge_ids
         qc_budget = float(getattr(elenchus_cfg, "total_budget_seconds", 90.0))
-        QC_JOIN_WAIT = min(qc_budget, 20.0)   # 逻辑评委等质检的上限：质检在此之内完成才注入提示词，否则先评审
-        QC_FINAL_WAIT = 30.0                  # 收尾补收割的上限
+        QC_JOIN_WAIT = min(  # v2.6 改为可配置：质检是进程内分析，通常秒级完成，20s 白等 rarely 值得
+            qc_budget, float(getattr(ctx.config.judges, "qc_join_wait_seconds", 10.0)))
+        QC_FINAL_WAIT = float(getattr(ctx.config.judges, "qc_final_wait_seconds", 10.0))
         qc_done = threading.Event()
         qc_holder: dict = {"ok": False, "outcome": None}
         qc_harvested = False
