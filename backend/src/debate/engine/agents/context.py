@@ -98,6 +98,25 @@ def build_debater_messages(
     return messages
 
 
+def build_chair_messages(
+    *, spec: AgentSpec, topic: Topic, instruction: str
+) -> list[dict[str, str]]:
+    """主席调用消息（v1.9.2 修复）：只注入辩题与双方立场句。
+
+    历史缺陷：主席也用 build_debater_messages，而 NEUTRAL 角色的
+    stance_for/points_for 均返回空，提示词里**根本没有辩题标题**，
+    引题演讲只能凭空发挥，于是与辩题脱节。
+    可见性矩阵：主席可见「辩题」与双方公开立场，仍不可见破题要点/战局/原文。
+    """
+    blocks = [
+        f"【辩题】{topic.title}",
+        f"【正方立场】{topic.pro_stance or '（未提供）'}",
+        f"【反方立场】{topic.con_stance or '（未提供）'}",
+        f"【本环节任务】\n{instruction}",
+    ]
+    return _assemble(spec.system_prompt, blocks)
+
+
 def build_judge_messages(
     *,
     spec: AgentSpec,

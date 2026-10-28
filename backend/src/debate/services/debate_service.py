@@ -12,6 +12,8 @@ import asyncio
 import logging
 from typing import Callable
 
+from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel import func, select
 
@@ -33,6 +35,10 @@ class QuotaExceeded(Exception):
     def __init__(self, code: str, message: str):
         self.code = code
         self.message = message
+
+
+class EngineTimeout(RuntimeError):
+    """引擎超过总时限且宽限期内仍未收束——服务层按 failed 收尾，绝不让场次卡在 running。"""
 
 
 class DebateService:
@@ -126,6 +132,9 @@ class DebateService:
                         "text": speech.text, "interrupted": speech.interrupted,
                         "side_notes": list(speech.side_notes),
                         "word_count": speech.word_count,  # v2.1 增补：前端动态计时条需要
+                        # v2.3 增补：带上环节戳——重连/补发时前端不必依赖"当前 phase"去猜，
+                        # 否则主席开篇（phase 1）在 phase_start 丢失的窗口里会被归到后续环节
+                        "phase": speech.phase, "phase_name": speech.phase_name,
                     },
                 })
 
@@ -155,24 +164,78 @@ class DebateService:
             )
 
         drain_task = asyncio.create_task(self._drain(queue, debate_id))
+        status, error = "failed", "引擎未产出结果"
+        drained = False
         try:
-            result = await asyncio.to_thread(engine_callable)
-        except Exception as exc:  # noqa: BLE001 —— 任何引擎异常都落 failed（ARCH §13）
+            result = await self._run_engine(
+                engine_callable, debate_id=debate_id, cancel_flag=cancel_flag, bus=bus
+            )
+            status, error = result.status, result.error
+            # v2.2：**先把落库队列排空，再全量 upsert**。
+            # 此前 finalize 与 drain 并发写同一批 (debate_id, seq)：drain 的 INSERT 与
+            # finalize 的 SELECT→INSERT 抢同一个唯一键，MySQL 直接抛
+            # "Duplicate entry 'x-y' for key 'speeches.uq_debate_seq'"，整场被判 failed，
+            # 用户侧看到的就是"评审未能完成：(1062, Duplicate entry...)"。
+            # 引擎线程此时已结束，不会再有新发言入队，先排空是安全的。
+            await self._finish_drain(queue, drain_task, debate_id)
+            drained = True
+            # v1.9.2：_finalize 必须与引擎调用同处一个 try——此前 finalize 抛异常时
+            # 任务直接崩掉，总线既不关闭也不发终态，前端永远停在"评委合议中"
+            await self._finalize(debate_id, result)
+        except Exception as exc:  # noqa: BLE001 —— 任何异常都必须收敛为终态（ARCH §13）
             logger.exception("debate %s crashed", debate_id)
-            await self._mark(debate_id, status="failed", error=str(exc), finished_at=self.now_fn())
-            if bus is not None:
-                bus.publish({"event": "status", "data": {"status": "failed", "error": str(exc)}})
-                bus.close()
-            return
+            status, error = "failed", str(exc) or type(exc).__name__
+            try:
+                await self._mark(debate_id, status="failed", error=error, finished_at=self.now_fn())
+            except Exception:  # noqa: BLE001 —— 终态回写失败也要继续播报，不能静默
+                logger.exception("debate %s 终态回写失败", debate_id)
         finally:
-            await queue.join()
-            drain_task.cancel()
-        await self._finalize(debate_id, result)
+            if not drained:
+                await self._finish_drain(queue, drain_task, debate_id)
         if bus is not None:
-            bus.publish({"event": "status", "data": {"status": result.status, "error": result.error}})
+            bus.publish({"event": "status", "data": {"status": status, "error": error}})
             bus.close()
 
+    async def _run_engine(self, engine_callable: Callable[[], DebateResult], *, debate_id: int,
+                          cancel_flag: dict, bus: EventBus | None) -> DebateResult:
+        """引擎调用带总时限看门狗：超时置取消旗标 → 宽限 → 仍不返回则强制收敛为失败。"""
+        cfg = self.config.engine
+        overall = float(cfg.max_duration_seconds)
+        grace = float(cfg.cancel_grace_seconds)
+        task = asyncio.create_task(asyncio.to_thread(engine_callable))
+        try:
+            return await asyncio.wait_for(asyncio.shield(task), timeout=overall)
+        except asyncio.TimeoutError:
+            logger.error("debate %s 超过总时限 %.0fs，请求引擎收束", debate_id, overall)
+            cancel_flag["cancelled"] = True
+            if bus is not None:
+                bus.publish({"event": "error", "data": {
+                    "message": f"本场运行已超过 {overall:.0f} 秒，正在强制收束",
+                }})
+            try:
+                return await asyncio.wait_for(asyncio.shield(task), timeout=grace)
+            except asyncio.TimeoutError:
+                task.cancel()  # 线程无法强杀，但拒绝继续等待
+                raise EngineTimeout(
+                    f"引擎超过总时限（{overall:.0f}s），宽限 {grace:.0f}s 内未收束，已强制结束"
+                ) from None
+
+    async def _finish_drain(self, queue: asyncio.Queue, drain_task: asyncio.Task, debate_id: int) -> None:
+        """收尾排空：**有界等待**——drain 任务意外终止时 queue.join() 会永久挂起。"""
+        try:
+            await asyncio.wait_for(queue.join(), timeout=float(self.config.engine.drain_timeout_seconds))
+        except asyncio.TimeoutError:
+            logger.warning("debate %s 落库队列未在时限内排空（剩余 %s 条待处理）", debate_id, queue.qsize())
+        except Exception:  # noqa: BLE001
+            logger.exception("debate %s 落库队列排空异常", debate_id)
+        drain_task.cancel()
+        try:
+            await drain_task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
+
     async def _drain(self, queue: asyncio.Queue, debate_id: int) -> None:
+        """逐条落库：单条失败只记日志并跳过——任务一旦终止，queue.join() 将永远等不到。"""
         while True:
             speech: Speech = await queue.get()
             try:
@@ -185,18 +248,90 @@ class DebateService:
                         word_count=speech.word_count, tokens=speech.tokens,
                     ))
                     await session.commit()
+            except Exception:  # noqa: BLE001 —— 落库失败不终止消费（终态会全量 upsert 兜底）
+                logger.warning("debate %s 第 %s 条发言落库失败", debate_id, speech.seq, exc_info=True)
+                try:  # 唯一键冲突等场景改为更新已存在行，避免该条在终态前一直是旧文本
+                    await self._update_speech(debate_id, speech)
+                except Exception:  # noqa: BLE001
+                    logger.warning("debate %s 第 %s 条发言补写亦失败", debate_id, speech.seq, exc_info=True)
             finally:
                 queue.task_done()
 
-    async def _finalize(self, debate_id: int, result: DebateResult) -> None:
+    async def _update_speech(self, debate_id: int, speech: Speech) -> None:
         async with self.sessionmaker() as session:
-            # 1) 按引擎最终 transcript 全量 upsert（质询打断会回改先前发言）
+            row = (await session.execute(
+                select(SpeechRow).where(SpeechRow.debate_id == debate_id, SpeechRow.seq == speech.seq)
+            )).scalar_one_or_none()
+            if row is None:
+                return
+            row.phase = speech.phase
+            row.phase_name = speech.phase_name
+            row.speaker_role = speech.speaker
+            row.camp = speech.camp.value
+            row.text = speech.text
+            row.side_notes = list(speech.side_notes)
+            row.interrupted = speech.interrupted
+            row.word_count = speech.word_count
+            row.tokens = speech.tokens
+            session.add(row)
+            await session.commit()
+
+    async def _finalize(self, debate_id: int, result: DebateResult) -> None:
+        """终态落库：撞唯一键时先清掉历史重复发言再重写一次，绝不让整场因此判失败。"""
+        try:
+            await self._write_final(debate_id, result)
+        except IntegrityError:
+            removed = await self._dedupe_speech_rows(debate_id)
+            logger.warning("debate %s 终态落库撞唯一键，清理 %s 条重复发言后重写", debate_id, removed)
+            if removed == 0:
+                raise
+            await self._write_final(debate_id, result)
+
+    async def _dedupe_speech_rows(self, debate_id: int) -> int:
+        """同一 (debate_id, seq) 只留最早一行（历史脏数据/并发写残留），返回删除条数。"""
+        async with self.sessionmaker() as session:
+            rows = (await session.execute(
+                select(SpeechRow.id, SpeechRow.seq).where(SpeechRow.debate_id == debate_id)
+                .order_by(SpeechRow.id)
+            )).all()
+            seen: set[int] = set()
+            extra: list[int] = []
+            for row_id, seq in rows:
+                if seq in seen:
+                    extra.append(row_id)
+                else:
+                    seen.add(seq)
+            if extra:
+                await session.execute(delete(SpeechRow).where(SpeechRow.id.in_(extra)))
+                await session.commit()
+            return len(extra)
+
+    async def _write_final(self, debate_id: int, result: DebateResult) -> None:
+        async with self.sessionmaker() as session:
+            # 0) 谬误标注按 seq 归并——**必须在写库循环之前构建**
+            #    （v1.7 曾把它放在循环之后，导致每次 finalize 必抛 UnboundLocalError：
+            #     异常逃出 _job → 总线不关闭也不发终态 → 前端永久卡在"评委合议中"）
+            marks_by_seq: dict[int, list] = {}
+            for m in result.machine_marks:
+                marks_by_seq.setdefault(m["seq"], []).append(m)
+
+            # 1) 按 seq 去重（后写覆盖先写），并一次性取出已有行：
+            #    逐行 SELECT 会触发 autoflush，把上一条待插入的行刷进同一个唯一键上，
+            #    一旦 transcript 里出现重复 seq 就直接 IntegrityError（v2.2 根治）。
+            by_seq: dict[int, Speech] = {}
             for speech in result.transcript:
-                row = (await session.execute(
-                    select(SpeechRow).where(SpeechRow.debate_id == debate_id, SpeechRow.seq == speech.seq)
-                )).scalar_one_or_none()
+                by_seq[speech.seq] = speech
+            existing = (await session.execute(
+                select(SpeechRow).where(SpeechRow.debate_id == debate_id)
+            )).scalars().all()
+            rows = {row.seq: row for row in existing}
+
+            # 2) 按引擎最终 transcript 全量 upsert（质询打断会回改先前发言）
+            for seq in sorted(by_seq):
+                speech = by_seq[seq]
+                row = rows.get(seq)
                 if row is None:
-                    row = SpeechRow(debate_id=debate_id, seq=speech.seq)
+                    row = SpeechRow(debate_id=debate_id, seq=seq)
                     session.add(row)
                 row.phase = speech.phase
                 row.phase_name = speech.phase_name
@@ -207,9 +342,13 @@ class DebateService:
                 row.interrupted = speech.interrupted
                 row.word_count = speech.word_count
                 row.tokens = speech.tokens
+                row.fallacies = marks_by_seq.get(seq, [])
 
-            # 2) 评分卡
+            # 3) 评分卡（幂等：重跑/补写场景先清理旧行，避免重复累加）
             debate = await session.get(DebateRow, debate_id)
+            if debate is None:  # 场次被并发删除：不再落库，交由上层按失败收尾
+                raise RuntimeError(f"debate {debate_id} 不存在，无法写入终态")
+            await session.execute(delete(ScorecardRow).where(ScorecardRow.debate_id == debate_id))
             debate.status = result.status
             debate.error = result.error
             debate.finished_at = self.now_fn()
@@ -220,6 +359,13 @@ class DebateService:
                 debate.team_total_pro = result.verdict.team_totals[Camp.PRO]
                 debate.team_total_con = result.verdict.team_totals[Camp.CON]
                 debate.votes_json = {k.value: v for k, v in result.verdict.votes.items()}
+                # v1.9：决胜依据与智能终裁说明随场次落库（回看时不必重算）
+                cfg = dict(debate.cfg_json or {})
+                cfg["verdict_meta"] = {
+                    "rule": result.verdict.decisive_rule,
+                    "reason": result.verdict.final_reason,
+                }
+                debate.cfg_json = cfg
             for card in result.scorecards:
                 session.add(ScorecardRow(
                     debate_id=debate_id, judge=card.judge, focus=card.focus,

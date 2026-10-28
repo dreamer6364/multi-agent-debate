@@ -46,3 +46,38 @@ describe("debateStore applyDelta/applySpeech 流式语义", () => {
     expect(st.text).toBe("乙");
   });
 });
+
+describe("debateStore 谬误标注挂载（v1.7 Elenchus）", () => {
+  beforeEach(() => useDebateStore.getState().reset());
+
+  const MARK = (seq: number, name = "滑坡谬误") =>
+    ({ seq, camp: "pro" as const, speaker: "pro-1", name, quote: "原文", explanation: "解释", confidence: 0.9 });
+
+  it("setFallacyMarks 按 seq 挂载；同名同引文去重", () => {
+    useDebateStore.getState().setFallacyMarks([MARK(1)]);
+    useDebateStore.getState().setFallacyMarks([MARK(1)]); // SSE + REST 补拉重叠
+    const bySeq = useDebateStore.getState().fallaciesBySeq;
+    expect(bySeq[1]).toHaveLength(1);
+    useDebateStore.getState().setFallacyMarks([MARK(2, "虚假类比")]);
+    expect(useDebateStore.getState().fallaciesBySeq[2]).toHaveLength(1);
+  });
+
+  it("ingestFallacies 终态补拉合并；无标注发言不影响既有数据", () => {
+    useDebateStore.getState().setFallacyMarks([MARK(1)]);
+    useDebateStore.getState().ingestFallacies([
+      { seq: 1 },
+      { seq: 3, fallacies: [MARK(3, "断章取义")] },
+    ]);
+    const bySeq = useDebateStore.getState().fallaciesBySeq;
+    expect(bySeq[1]).toHaveLength(1);
+    expect(bySeq[3]).toHaveLength(1);
+  });
+
+  it("applySpeech 携带 fallacies 时合并到对应 seq", () => {
+    useDebateStore.getState().applySpeech({
+      seq: 5, speaker: "con-2", camp: "con", text: "发言",
+      interrupted: false, side_notes: [], fallacies: [MARK(5, "以偏概全")],
+    });
+    expect(useDebateStore.getState().fallaciesBySeq[5]).toHaveLength(1);
+  });
+});

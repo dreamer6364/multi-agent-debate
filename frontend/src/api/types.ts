@@ -15,6 +15,18 @@ export interface Speech {
   interrupted: boolean;
   word_count: number;
   tokens: number;
+  fallacies?: FallacyMark[];
+}
+
+/** v1.7 Elenchus 谬误标注（挂载到发言 seq；SSE fallacy 事件与 REST speeches 同构） */
+export interface FallacyMark {
+  seq: number;
+  camp: Camp;
+  speaker: string;
+  name: string;
+  quote: string;
+  explanation: string;
+  confidence?: number;
 }
 
 /** SSE speech 事件载荷（SPEC §6.2，字段封闭；word_count 为 v2.1 增补） */
@@ -28,6 +40,7 @@ export interface LiveSpeech {
   word_count?: number;
   phase?: number;
   phase_name?: string;
+  fallacies?: FallacyMark[];
 }
 
 /** SSE speech_delta 事件载荷（v2.1 流式直播；不落库不重放） */
@@ -59,6 +72,12 @@ export interface ScorecardSummary {
   abstained: boolean;
   pro_total: number;
   con_total: number;
+  /** 分维明细（statement/rebuttal_cross/attack/free/closing/conduct）——评委打分的具体依据 */
+  pro_scores?: Record<string, number>;
+  con_scores?: Record<string, number>;
+  /** 评委理由：亮点/不足（须引原话），键为 "pro" / "con" */
+  highlights?: { pro?: string[]; con?: string[] };
+  weaknesses?: { pro?: string[]; con?: string[] };
 }
 
 export interface Verdict {
@@ -66,13 +85,23 @@ export interface Verdict {
   team_totals: { pro: number | string; con: number | string };
   winner: "pro" | "con" | null;
   best_speaker: string | null;
+  /** majority | team_total | best_speaker | final_judge | unresolved */
   decisive_rule: string;
+  /** 智能终裁说明（决胜依据为 final_judge 时存在） */
+  final_reason?: string | null;
   scorecards?: ScorecardSummary[];
 }
 
 export interface DebateDetail {
   id: number;
-  topic: { id: number; title: string };
+  topic: {
+    id: number;
+    title: string;
+    pro_stance?: string;
+    con_stance?: string;
+    pro_points?: string[];
+    con_points?: string[];
+  };
   format: DebateFormat;
   status: DebateStatus;
   cfg: Record<string, unknown>;
@@ -80,6 +109,8 @@ export interface DebateDetail {
   best_speaker: string | null;
   team_totals: { pro: string | null; con: string | null };
   votes: { pro?: number; con?: number } | null;
+  decisive_rule?: string | null;
+  final_reason?: string | null;
   usage: { calls?: number; prompt_tokens?: number; completion_tokens?: number } | null;
   error: string | null;
   scorecards?: ScorecardSummary[];

@@ -24,6 +24,7 @@ class DebateResult:
     scorecards: list[ScoreCard] = field(default_factory=list)
     verdict: Verdict | None = None
     error: str | None = None
+    machine_marks: list[dict] = field(default_factory=list)  # v1.7 Elenchus 谬误标注
     usage: dict[str, int] = field(default_factory=dict)
 
 
@@ -46,7 +47,9 @@ def run_debate(
 
     # RAG 预检索（v1.4）：双方各自按辩题+己方命题取 top_k 证据卡，全场环节复用
     # v1.4.1：联网搜索结果并入（provider 见 config.web_search；失败静默回落本地）
+    # v1.8：retriever / web_provider 一并挂到 ctx——辩手工具循环可动态检索，不再只吃固定预注入
     evidence: dict = {Camp.PRO: [], Camp.CON: []}
+    retriever = None
     if config.rag.enabled:
         root = Path(assets_root) if assets_root else Path.cwd()
         retriever = EvidenceRetriever.from_dir(root / config.rag.knowledge_dir)
@@ -54,9 +57,11 @@ def run_debate(
             Camp.PRO: retriever.evidence_for(topic, Camp.PRO, top_k=config.rag.top_k),
             Camp.CON: retriever.evidence_for(topic, Camp.CON, top_k=config.rag.top_k),
         }
+    web_provider = None
     if config.web_search.enabled:
         provider = config.web_search.provider
         provider = resolve_provider() if provider == "env" else provider
+        web_provider = provider
         for camp in (Camp.PRO, Camp.CON):
             web_cards = search_as_cards(
                 f"{topic.title} {topic.stance_for(camp)}",
@@ -67,7 +72,7 @@ def run_debate(
     ctx = DebateContext(
         config=config, topic=topic, agents=agents, gateway=gateway,
         compressor=compressor, format=fmt, evidence=evidence, on_speech=on_speech, on_event=on_event, on_delta=on_delta,
-        cancel_check=cancel_check,
+        cancel_check=cancel_check, retriever=retriever, web_provider=web_provider,
     )
     graph = build_graph(ctx, fmt)
     try:
@@ -77,6 +82,7 @@ def run_debate(
             transcript=final.get("transcript", []),
             scorecards=final.get("scorecards", []),
             verdict=final.get("verdict"),
+            machine_marks=final.get("machine_marks", []),
             usage=dict(gateway.usage),
         )
     except DebateCancelled:

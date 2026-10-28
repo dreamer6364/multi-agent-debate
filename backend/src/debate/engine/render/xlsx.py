@@ -25,6 +25,7 @@ RULE_CN = {
     "majority": "评委投票多数",
     "team_total": "团体总分",
     "best_speaker": "最佳辩手归属",
+    "final_judge": "评议长智能终裁",
     "unresolved": "决胜规则用尽",
 }
 

@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import Counter
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import func, select
 
@@ -150,18 +152,44 @@ async def get_debate(debate_id: int, user=Depends(get_current_user),
     card_rows = (await session.execute(
         select(ScorecardRow).where(ScorecardRow.debate_id == debate.id)
     )).scalars().all()
+    # 决胜依据：优先取落库元数据（v1.9），历史场次按同一优先级回算
+    meta = (debate.cfg_json or {}).get("verdict_meta") or {}
+    rule = meta.get("rule")
+    if not rule:
+        votes = debate.votes_json or {}
+        if votes.get("pro", 0) != votes.get("con", 0):
+            rule = "majority"
+        elif _fmt_num(debate.team_total_pro) != _fmt_num(debate.team_total_con):
+            rule = "team_total"
+        elif debate.winner is None:
+            rule = "unresolved"
+        else:
+            bests = [c.best_speaker for c in card_rows if c.best_speaker and not c.abstained]
+            top = Counter(bests).most_common()
+            rule = "best_speaker" if top and top[0][1] > (top[1][1] if len(top) > 1 else 0) else "final_judge"
     return {
         "id": debate.id,
-        "topic": {"id": topic_row.id, "title": topic_row.title},
+        "topic": {
+            "id": topic_row.id, "title": topic_row.title,
+            "pro_stance": topic_row.pro_stance or "",
+            "con_stance": topic_row.con_stance or "",
+            "pro_points": [p for p in (topic_row.pro_points or "").split("\n") if p.strip()],
+            "con_points": [p for p in (topic_row.con_points or "").split("\n") if p.strip()],
+        },
         "format": debate.format, "status": debate.status, "cfg": debate.cfg_json,
         "winner": debate.winner, "best_speaker": debate.best_speaker,
         "team_totals": {"pro": _fmt_num(debate.team_total_pro), "con": _fmt_num(debate.team_total_con)},
         "votes": debate.votes_json, "usage": debate.usage_json, "error": debate.error,
+        "decisive_rule": rule, "final_reason": meta.get("reason"),
         "scorecards": [{
             "judge": c.judge, "focus": c.focus, "vote": c.vote,
             "best_speaker": c.best_speaker, "abstained": c.abstained,
             "pro_total": sum((c.scores_json or {}).get("pro_scores", {}).values()),
             "con_total": sum((c.scores_json or {}).get("con_scores", {}).values()),
+            "pro_scores": (c.scores_json or {}).get("pro_scores", {}),
+            "con_scores": (c.scores_json or {}).get("con_scores", {}),
+            "highlights": c.highlights_json or {},
+            "weaknesses": c.weaknesses_json or {},
         } for c in card_rows],
         "started_at": iso_cn(debate.started_at), "finished_at": iso_cn(debate.finished_at),
         "created_at": iso_cn(debate.created_at),
@@ -182,6 +210,7 @@ async def list_speeches(debate_id: int, after_seq: int = 0, limit: int = 200,
         "speaker": r.speaker_role, "camp": r.camp, "text": r.text,
         "side_notes": r.side_notes or [], "interrupted": r.interrupted,
         "word_count": r.word_count, "tokens": r.tokens,
+        "fallacies": r.fallacies or [],
     } for r in rows]
     return {"items": items, "has_more": len(items) == limit}
 
@@ -199,6 +228,48 @@ async def stop_debate(debate_id: int, request: Request, user=Depends(get_current
     await session.commit()
     state.service.request_cancel(debate_id)
     return {"status": "stopped"}
+
+
+async def _purge_debates(session: AsyncSession, ids: list[int]) -> int:
+    """级联删除场次及其发言/评分卡（存档清理唯一入口，保证不留孤儿行）。"""
+    if not ids:
+        return 0
+    await session.execute(delete(ScorecardRow).where(ScorecardRow.debate_id.in_(ids)))
+    await session.execute(delete(SpeechRow).where(SpeechRow.debate_id.in_(ids)))
+    result = await session.execute(delete(DebateRow).where(DebateRow.id.in_(ids)))
+    return result.rowcount or 0
+
+
+@router.delete("/{debate_id}", status_code=204)
+async def delete_debate(debate_id: int, user=Depends(get_current_user),
+                        session: AsyncSession = Depends(get_session)):
+    """删除单场历史归档（连同发言、评分卡）。
+
+    进行中/等待中的场次必须先终止：正在跑的引擎仍会向该 debate_id 写库，
+    直接删除会立刻被 finalize 重新插回（甚至撞唯一键），所以这里明确拒绝。
+    """
+    debate = await _owned_debate(session, debate_id, user.id)
+    if debate.status in ("pending", "running"):
+        raise ApiError(409, "DEBATE_ACTIVE", "比赛仍在进行中，请先终止比赛再删除")
+    session.expunge(debate)  # 交给批量 DELETE，避免 ORM 再发一次过期刷新
+    await _purge_debates(session, [debate_id])
+    await session.commit()
+    return None
+
+
+@router.delete("", status_code=200)
+async def clear_archived_debates(user=Depends(get_current_user),
+                                 session: AsyncSession = Depends(get_session)):
+    """清空历史归档：删除本人全部已结束/已失败/已停止的场次（进行中不动）。"""
+    ids = list((await session.execute(
+        select(DebateRow.id).where(
+            DebateRow.owner_id == user.id,
+            DebateRow.status.in_(["finished", "failed", "stopped"]),
+        )
+    )).scalars().all())
+    deleted = await _purge_debates(session, [int(i) for i in ids])
+    await session.commit()
+    return {"deleted": deleted}
 
 
 @router.get("/{debate_id}/export")
@@ -268,6 +339,7 @@ async def stream_debate(debate_id: int, request: Request, after_seq: int = 0,
                     "seq": row.seq, "speaker": row.speaker_role, "camp": row.camp,
                     "text": row.text, "interrupted": row.interrupted,
                     "side_notes": list(row.side_notes or []),
+                    "word_count": row.word_count, "phase": row.phase, "phase_name": row.phase_name,
                 }})
             # 2) 快照：终态直接收尾；进行中补 status + 最近 phase_start
             if terminal or bus is None or live_queue is None:
@@ -334,16 +406,20 @@ async def _result_from_rows(session: AsyncSession, debate: DebateRow) -> DebateR
     votes_raw = debate.votes_json or {}
     votes = {Camp.PRO: int(votes_raw.get("pro", 0)), Camp.CON: int(votes_raw.get("con", 0))}
     totals = {Camp.PRO: float(debate.team_total_pro or 0), Camp.CON: float(debate.team_total_con or 0)}
-    if votes[Camp.PRO] != votes[Camp.CON]:
-        rule = "majority"
-    elif totals[Camp.PRO] != totals[Camp.CON]:
-        rule = "team_total"
-    else:
-        rule = "best_speaker" if debate.winner else "unresolved"
+    meta = (debate.cfg_json or {}).get("verdict_meta") or {}
+    rule = meta.get("rule")
+    if not rule:
+        if votes[Camp.PRO] != votes[Camp.CON]:
+            rule = "majority"
+        elif totals[Camp.PRO] != totals[Camp.CON]:
+            rule = "team_total"
+        else:
+            rule = "best_speaker" if debate.winner else "unresolved"
     verdict = Verdict(
         votes=votes, team_totals=totals,
         winner=Camp(debate.winner) if debate.winner else None,
         best_speaker=debate.best_speaker, decisive_rule=rule,
+        final_reason=meta.get("reason"),
     )
     return DebateResult(status=debate.status, transcript=transcript,
                         scorecards=scorecards, verdict=verdict)

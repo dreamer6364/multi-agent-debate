@@ -52,6 +52,60 @@ def test_analyze_speeches_per_failure_skipped(monkeypatch):
     assert out == "" and calls["n"] == 2  # 全失败 → 空段（降级）
 
 
+def test_inproc_timeout_does_not_wait_for_hung_thread(monkeypatch):
+    """回归（v1.9.2）：`with ThreadPoolExecutor` 退出会 join 线程 → 内部调用假死时**永久阻塞**。
+
+    修复后超时必须立即返回（旧写法会等满 sleep 时长），这是"评委环节卡死"的成因之一。
+    """
+    import sys as _sys
+    import time as _time
+    import types as _types
+
+    mod = _types.ModuleType("elenchus.core.analyzer")
+
+    def hang(text, check="fallacy", sensitivity=None):
+        _time.sleep(5)
+        return {"findings": []}
+
+    mod.analyze_text = hang
+    monkeypatch.setitem(_sys.modules, "elenchus.core.analyzer", mod)
+
+    from debate.engine.tools import elenchus as et
+
+    start = _time.monotonic()
+    try:
+        et._analyze_inproc("一段论证", "fallacy", 0.2)
+        raise AssertionError("应当超时")
+    except TimeoutError:
+        pass
+    elapsed = _time.monotonic() - start
+    assert elapsed < 1.5, f"超时后仍在等待挂死线程：{elapsed:.1f}s"
+
+
+def test_analyze_speeches_total_budget_stops_early(monkeypatch):
+    """质检总预算耗尽即停：per_camp=2 时不会把 4 条全部按 45s 跑满。"""
+    from debate.engine.tools import elenchus as et
+
+    called = {"n": 0}
+
+    def slow(text, check="fallacy", sensitivity=None):
+        called["n"] += 1
+        import time as _t
+        _t.sleep(0.5)
+        return {"findings": [{"name": "X", "quote": "q", "explanation": "e", "confidence": "low"}]}
+
+    monkeypatch.setattr(et, "_analyze_inproc", slow)
+    speeches = [
+        _speech(1, Camp.PRO, "正方长发言" * 20),
+        _speech(2, Camp.PRO, "正方次发言" * 18, "pro-2"),
+        _speech(3, Camp.CON, "反方长发言" * 20, "con-1"),
+        _speech(4, Camp.CON, "反方次发言" * 18, "con-2"),
+    ]
+    text, marks = et.analyze_speeches_detailed(speeches, per_camp=2, total_budget=2.0)
+    assert called["n"] <= 2, called  # 4 条候选但预算只够 2 条，第 3 条前提前收手
+    assert text and marks
+
+
 def test_judge_context_machine_analysis_position(assets_root):
     """机器分析段注入位置：原文摘录之后、要点清单之前；且仅逻辑评委获得。"""
     agents = load_agents(assets_root)

@@ -15,6 +15,7 @@ PHASE_NAMES: dict[str, str] = {
     "closing": "总结陈词",
     "judging": "评委点评",
     "verdict": "宣判闭幕",
+    "closing_ceremony": "主席致辞",
 }
 
 PHASE_NUMBERS: dict[str, int] = {
@@ -28,13 +29,19 @@ PHASE_NUMBERS: dict[str, int] = {
     "closing": 8,
     "judging": 9,
     "verdict": 10,
+    "closing_ceremony": 11,
 }
 
 FULL_SEQUENCE = [
     "opening", "statement", "cross_examination", "rebuttal", "attack",
-    "attack_summary", "free_debate", "closing", "judging", "verdict",
+    "attack_summary", "free_debate", "closing", "judging", "verdict", "closing_ceremony",
 ]
-LITE_SEQUENCE = ["statement", "rebuttal", "free_debate", "closing", "judging", "verdict"]
+# lite 赛制（v2.2）：主席开场与结束致辞是全场"仪式骨架"，任何赛制都必须有——
+# 此前 lite 列表漏了 opening，主席引题演讲永不出现，立论框架页只能显示空态。
+LITE_SEQUENCE = [
+    "opening", "statement", "rebuttal", "free_debate", "closing",
+    "judging", "verdict", "closing_ceremony",
+]
 
 
 def sequence_for(fmt: DebateFormat) -> list[str]:

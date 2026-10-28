@@ -4,7 +4,7 @@ import { me } from "../api/client";
 
 const PHASES = [
   "主席开场", "开篇立论", "质询一辩", "驳论", "攻辩盘问",
-  "攻辩小结", "自由辩论", "总结陈词", "评委点评", "宣判闭幕",
+  "攻辩小结", "自由辩论", "总结陈词", "评委点评", "宣判闭幕", "主席致辞",
 ];
 
 const ROLES: Array<{ label: string; short: string; tone: "pro" | "con" | "neutral" | "judge" | "tk" }> = [

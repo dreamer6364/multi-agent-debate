@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -44,19 +45,24 @@ class Gateway:
     min_interval: float = 0.0  # 全局限速：相邻调用最小间隔秒（免费档 RPM 受限时配置，如 12）
     sleep: Callable[[float], None] = time.sleep
     _last_call: float = field(default_factory=lambda: 0.0)
+    _throttle_lock: threading.Lock = field(default_factory=threading.Lock)  # v1.9.1：评委并发后多线程调用
     extra_body: dict[str, Any] | None = None  # OpenAI 兼容透传（如 GLM thinking: disabled）
     usage: dict[str, int] = field(default_factory=lambda: {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0})
     _client: Any = None
 
     def _throttle(self) -> None:
-        """全局限速（v1.4）：距上次调用不足 min_interval 则等待——免费档 RPM 保护。"""
+        """全局限速（v1.4）：距上次调用不足 min_interval 则等待——免费档 RPM 保护。
+
+        v1.9.1 起加锁：评委并行（多线程）调用时保证间隔计算与时间戳更新原子。
+        """
         if self.min_interval <= 0:
             return
-        now = time.monotonic()
-        wait = self.min_interval - (now - self._last_call)
-        if wait > 0:
-            self.sleep(wait)
-        self._last_call = time.monotonic()
+        with self._throttle_lock:
+            now = time.monotonic()
+            wait = self.min_interval - (now - self._last_call)
+            if wait > 0:
+                self.sleep(wait)
+            self._last_call = time.monotonic()
 
     def complete(
         self, messages: list[dict[str, str]], *, tier: str, temperature: float, max_tokens: int
@@ -183,3 +189,104 @@ class Gateway:
             prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
             completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
         )
+
+    # ---- v1.8 Agent 工具循环（function calling）----
+
+    def chat_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]],
+        execute: Callable[[str, dict[str, Any]], str],
+        tier: str,
+        temperature: float,
+        max_tokens: int,
+        max_rounds: int = 2,
+    ) -> LLMResult:
+        """带工具循环的对话：模型返回 tool_calls 则执行并把结果回注，直至给出正文。
+
+        - backend 实现了 chat_with_tools（测试替身/异构后端）→ 直接委托；
+        - backend 存在但未实现（FakeLLM 等）→ 忽略工具走 complete（兜底兼容）；
+        - 否则走 OpenAI 兼容 function calling 原生循环。
+        任何异常由调用方捕获降级为普通 complete。
+        """
+        if self.backend is not None:
+            if hasattr(self.backend, "chat_with_tools"):
+                result = self.backend.chat_with_tools(
+                    messages, tools=tools, execute=execute, tier=tier,
+                    temperature=temperature, max_tokens=max_tokens, max_rounds=max_rounds,
+                )
+                self.usage["calls"] += 1
+                self.usage["prompt_tokens"] += result.prompt_tokens
+                self.usage["completion_tokens"] += result.completion_tokens
+                return result
+            return self.complete(messages, tier=tier, temperature=temperature, max_tokens=max_tokens)
+
+        self._throttle()
+        model = self.model_debater if tier == "debater" else self.model_official
+        if self._client is None:
+            from openai import OpenAI
+
+            self._client = OpenAI(
+                api_key=os.environ.get("OPENAI_API_KEY", ""),
+                base_url=os.environ.get("OPENAI_BASE_URL") or None,
+                timeout=float(os.environ.get("LLM_TIMEOUT_SECONDS", "120")),
+            )
+        convo = [dict(m) for m in messages]
+        prompt_tokens = 0
+        completion_tokens = 0
+        kwargs: dict[str, Any] = {"tools": tools, "tool_choice": "auto"}
+        if self.extra_body:
+            kwargs["extra_body"] = self.extra_body
+        for _ in range(max_rounds + 1):
+            response = self._client.chat.completions.create(
+                model=model, messages=convo, temperature=temperature, max_tokens=max_tokens, **kwargs
+            )
+            usage = getattr(response, "usage", None)
+            prompt_tokens += getattr(usage, "prompt_tokens", 0) or 0
+            completion_tokens += getattr(usage, "completion_tokens", 0) or 0
+            message = response.choices[0].message
+            calls = getattr(message, "tool_calls", None)
+            if not calls:
+                text = message.content or ""
+                self.usage["calls"] += 1
+                self.usage["prompt_tokens"] += prompt_tokens
+                self.usage["completion_tokens"] += completion_tokens
+                return LLMResult(text=text, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
+            assistant_msg: dict[str, Any] = {
+                "role": "assistant",
+                "content": message.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments or "{}"},
+                    }
+                    for tc in calls
+                ],
+            }
+            convo.append(assistant_msg)
+            for tc in calls:
+                try:
+                    args = json.loads(tc.function.arguments or "{}")
+                    if not isinstance(args, dict):
+                        args = {}
+                except json.JSONDecodeError:
+                    args = {}
+                try:
+                    result_text = execute(tc.function.name, args)
+                except Exception as exc:  # noqa: BLE001 —— 工具失败回注错误，模型自行调整
+                    result_text = f"工具执行失败：{exc}"
+                convo.append({"role": "tool", "tool_call_id": tc.id, "content": result_text})
+        # 轮数耗尽：最后再强制一次无工具收束
+        kwargs.pop("tools", None)
+        kwargs.pop("tool_choice", None)
+        response = self._client.chat.completions.create(
+            model=model, messages=convo, temperature=temperature, max_tokens=max_tokens, **kwargs
+        )
+        usage = getattr(response, "usage", None)
+        text = response.choices[0].message.content or ""
+        self.usage["calls"] += 1
+        self.usage["prompt_tokens"] += prompt_tokens + (getattr(usage, "prompt_tokens", 0) or 0)
+        self.usage["completion_tokens"] += completion_tokens + (getattr(usage, "completion_tokens", 0) or 0)
+        return LLMResult(text=text, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)

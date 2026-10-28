@@ -21,9 +21,11 @@ def role_display(role_id: str) -> str:
 
 def _budget_suffix(phase: int, config) -> str:
     phase_key = next((k for k, v in PHASE_NUMBERS.items() if v == phase), None)
-    if phase_key in ("judging", "verdict"):
+    if phase_key in ("judging", "verdict", "closing_ceremony"):
+        return ""  # 无固定时长环节（评委/宣判/致辞）不标时长
+    minutes = getattr(config.procedure.phases, phase_key, None) if phase_key else None
+    if minutes is None:  # 未知环节不要因取值失败而中断整篇导出
         return ""
-    minutes = float(getattr(config.procedure.phases, phase_key))
     if phase_key == "free_debate":
         return f"，每队 {minutes:g} 分钟"
     if phase_key in ("cross_examination", "attack"):
@@ -108,8 +110,11 @@ def render_scorecard_md(topic, fmt: DebateFormat, result) -> str:
     ]
     if verdict and verdict.decisive_rule and verdict.decisive_rule != "majority":
         rule_cn = {"team_total": "平票，按团体总分决胜", "best_speaker": "平票且总分相同，按最佳辩手归属决胜",
+                   "final_judge": "投票与总分均平，由评议长智能终裁",
                    "unresolved": "决胜规则用尽，判为平局"}
         lines.append(f"- 决胜说明：{rule_cn.get(verdict.decisive_rule, verdict.decisive_rule)}。")
+        if verdict.final_reason:
+            lines.append(f"- 终裁理由：{verdict.final_reason}")
         lines.append("")
     usage = result.usage
     tokens = usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0)

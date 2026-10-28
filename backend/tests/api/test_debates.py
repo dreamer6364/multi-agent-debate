@@ -39,7 +39,9 @@ async def test_create_run_and_archive(env):
     assert speeches["has_more"] is False
     seqs = [s["seq"] for s in speeches["items"]]
     assert seqs == sorted(seqs) and len(seqs) == len(set(seqs))
-    assert speeches["items"][0]["phase"] == 2  # lite 从立论开始
+    assert speeches["items"][0]["phase"] == 1  # lite 也以主席开场（v2.2 补齐仪式环节）
+    assert speeches["items"][0]["speaker"] == "chair"
+    assert speeches["items"][-1]["phase"] == 11  # 全场以主席结束致辞收束
 
     incremental = (await client.get(f"/api/debates/{debate_id}/speeches", params={"after_seq": seqs[3]})).json()
     assert [s["seq"] for s in incremental["items"]] == seqs[4:]  # after_seq 增量语义
@@ -209,3 +211,46 @@ async def test_health(env):
     response = await client.get("/api/health")
     assert response.status_code == 200 and response.json() == {"status": "ok", "db": "ok"}
     await client.aclose()
+
+
+async def test_delete_archive_and_clear(env):
+    """单场删除 + 清空归档：发言与评分卡一并清理，列表与详情同步消失。"""
+    client = await new_client(env)
+    await register_and_login(client, "alice")
+    first = await _start(client)
+    await wait_status(client, first, "finished")
+    second = await _start(client)  # 并发限 1 场：必须等前一场收尾
+    await wait_status(client, second, "finished")
+
+    single = await client.delete(f"/api/debates/{first}")
+    assert single.status_code == 204
+    assert (await client.get(f"/api/debates/{first}")).status_code == 404
+    assert (await client.get(f"/api/debates/{first}/speeches")).status_code == 404
+
+    cleared = await client.delete("/api/debates")
+    assert cleared.status_code == 200 and cleared.json()["deleted"] == 1
+    assert (await client.get("/api/debates")).json()["total"] == 0
+    assert (await client.get(f"/api/debates/{second}")).status_code == 404
+    await client.aclose()
+
+
+async def test_delete_running_debate_rejected(env, backend_root, tmp_path):
+    """进行中的场次必须先终止：引擎仍在写库，直接删除会被 finalize 写回。"""
+    backend = BlockingBackend()
+    app = make_app(backend_root, tmp_path,
+                   gateway_factory=lambda config, fmt: Gateway(
+                       backend=backend, model_debater="fake", model_official="fake",
+                       max_retries=0, sleep=lambda s: None))
+    async with app.router.lifespan_context(app):
+        client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+        await register_and_login(client, "alice")
+        debate_id = (await client.post("/api/debates", json={"topic_id": 1, "format": "lite"})).json()["id"]
+        await asyncio.to_thread(backend.started.wait, 10)
+        rejected = await client.delete(f"/api/debates/{debate_id}")
+        assert rejected.status_code == 409 and rejected.json()["code"] == "DEBATE_ACTIVE"
+        # 清空归档也不应误伤进行中的场次
+        assert (await client.delete("/api/debates")).json()["deleted"] == 0
+        assert (await client.get(f"/api/debates/{debate_id}")).status_code == 200
+        backend.release.set()
+        await wait_status(client, debate_id, "finished")
+        await client.aclose()

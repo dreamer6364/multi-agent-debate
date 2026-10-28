@@ -37,8 +37,33 @@ _META_PHRASES = (
     "训练数据",
 )
 
-_MD_HEADING = re.compile(r"^#{1,6}\s")
+_MD_HEADING = re.compile(r"^[ \t]*#{1,6}[ \t]*")
 _FENCE = "```"
+# 行首列表符号（- / * / •）——保留文本，只去掉符号
+_MD_BULLET = re.compile(r"^[ \t]*[-*•·][ \t]+", re.M)
+# 成对强调：**加粗**（保留，前端渲染 <strong>）；__下划线__ 一律降级为纯文本
+_MD_BOLD_PAIR = re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*", re.S)
+_MD_UNDER_PAIR = re.compile(r"__(?=\S)(.+?)(?<=\S)__", re.S)
+# 私有区哨兵：保护成对的 ** 不被后续的"清星号"误伤
+_SENT_O, _SENT_C = "\ue000", "\ue001"
+
+
+def strip_markdown_noise(text: str) -> str:
+    """清掉正文里的 markdown 噪声，治"发言里冒出裸 * "的观感问题。
+
+    口径：成对的 ``**加粗**`` 保留（前端按 markdown-lite 渲染为粗体）；
+    落单的 ``*``、成对的 ``__``、反引号、删除线、行首列表符号、``#`` 标题前缀全部剥掉，
+    只留可读正文。输出对纯文本渲染安全（前端不再需要容错裸符号）。
+    """
+    if not text:
+        return text
+    text = _MD_BOLD_PAIR.sub(lambda m: f"{_SENT_O}{m.group(1)}{_SENT_C}", text)
+    text = text.replace("*", "")          # 落单星号 / 未闭合的 ** 一并清掉
+    text = _MD_UNDER_PAIR.sub(r"\1", text)
+    text = text.replace("`", "").replace("~~", "")
+    text = _MD_BULLET.sub("", text)
+    text = _MD_HEADING.sub("", text)
+    return text.replace(_SENT_O, "**").replace(_SENT_C, "**")
 
 
 def has_interrupt_marker(text: str) -> bool:
@@ -65,8 +90,10 @@ def scan(text: str, abuse_keywords: list[str]) -> list[str]:
 
 
 def strip_forbidden_format(text: str) -> tuple[str, bool]:
-    """剥离 markdown 标题行与代码块（含围栏内内容）。
+    """剥离 markdown 标题/代码块/强调符号，只留可读正文。
 
+    v2.2：标题行不再整行丢弃（此前 ``### 定义`` 会连内容一起消失），改为去掉 ``#`` 前缀；
+    同时统一清掉落单星号、反引号等噪声——正文绝不会再出现裸 ``*``（前端只渲染成对的加粗）。
     返回 (清洗文本, 是否发生剥离)。
     """
     out_lines: list[str] = []
@@ -82,9 +109,9 @@ def strip_forbidden_format(text: str) -> tuple[str, bool]:
             continue
         if _MD_HEADING.match(line):
             changed = True
-            continue
         out_lines.append(line)
-    return "\n".join(out_lines).strip(), changed
+    cleaned = strip_markdown_noise("\n".join(out_lines).strip())
+    return cleaned, changed or cleaned != text.strip()
 
 
 def is_repetitive(text: str, prior_texts: list[str], min_overlap: int = 15) -> bool:

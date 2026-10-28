@@ -12,6 +12,7 @@ class DebateState(TypedDict, total=False):
     digest: Digest
     scorecards: list[ScoreCard]
     verdict: Verdict | None
+    machine_marks: list[dict]  # v1.7 Elenchus 谬误标注
 
 
 def initial_state() -> DebateState:

@@ -93,4 +93,5 @@ class Verdict(BaseModel):
     team_totals: dict[Camp, float]
     winner: Camp | None
     best_speaker: str | None = None
-    decisive_rule: str  # majority | team_total | best_speaker | unresolved
+    decisive_rule: str  # majority | team_total | best_speaker | final_judge | unresolved
+    final_reason: str | None = None  # v1.9：智能终裁的裁决说明（仅 final_judge 时存在）

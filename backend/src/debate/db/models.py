@@ -93,6 +93,7 @@ class SpeechRow(SQLModel, table=True):
     interrupted: bool = False
     word_count: int = 0
     tokens: int = 0
+    fallacies: list = Field(default_factory=list, sa_column=Column(JSON, nullable=True))  # v1.7 Elenchus 标注
     created_at: NaiveDatetime = Field(default_factory=now_cn)
 
     __table_args__ = (

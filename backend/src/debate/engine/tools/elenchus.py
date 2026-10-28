@@ -11,6 +11,7 @@ LLM 配置：复用 .env 的 OPENAI_API_KEY/OPENAI_BASE_URL（GLM 兼容端点�
 """
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -30,12 +31,26 @@ class ElenchusUnavailable(Exception):
 
 
 def _analyze_inproc(text: str, check: str, timeout: float) -> dict:
+    """超时即放弃——**绝不能用 `with ThreadPoolExecutor`**。
+
+    `with` 退出时执行 `shutdown(wait=True)`：若 elenchus 内部的 LLM 调用卡在网络上
+    （无超时、连接假死），future.cancel() 杀不掉已运行的线程，主线程会**永久阻塞**
+    在 `__exit__` 上——这正是"评委点评环节卡死"的直接成因之一。
+    改为显式 shutdown(wait=False, cancel_futures=True)：超时立即抛错返回，卡住的线程
+    留作守护性泄漏（进程退出即回收），绝不拖住评分环节。
+    """
     from elenchus.core.analyzer import analyze_text
 
     _configure_provider_env()
-    with ThreadPoolExecutor(max_workers=1) as pool:
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="elenchus")
+    try:
         future = pool.submit(analyze_text, text, check=check, sensitivity=None)
         return future.result(timeout=timeout)
+    except TimeoutError:
+        future.cancel()  # 排队中的任务取消；已运行的线程无法强杀，交由不等待的 shutdown
+        raise
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 class _McpStdioClient:
@@ -125,48 +140,119 @@ def analyze_one(text: str, check: str = "fallacy", timeout: float = 45.0,
     return _analyze_inproc(text, check, timeout)
 
 
-def analyze_speeches(speeches: list[Speech], *, per_camp: int = 2, check: str = "fallacy",
-                     timeout: float = 45.0, mode: str = "inproc") -> str:
+def _collect_findings(speech: Speech, result: dict, findings_lines: list[str], marks: list[dict]) -> None:
+    """把单条分析结果归并为注入行与 marks（主线程调用，无锁竞争）。"""
+    for f in (result.get("findings") or [])[:4]:
+        name = f.get("name", "?")
+        quote = (f.get("quote") or "")[:60]
+        conf = f.get("confidence", "?")
+        findings_lines.append(
+            f"- [{CAMP_CN[speech.camp]}·{speech.speaker}] {name}（{conf}）：引用“{quote}”"
+        )
+        marks.append({"seq": speech.seq, "camp": speech.camp.value, "speaker": speech.speaker,
+                      "name": name, "quote": quote, "explanation": (f.get("explanation") or "")[:160],
+                      "confidence": conf})
+
+
+def analyze_speeches_detailed(speeches: list[Speech], *, per_camp: int = 2, check: str = "fallacy",
+                              timeout: float = 45.0, mode: str = "inproc",
+                              total_budget: float | None = None,
+                              parallel: int = 1,
+                              on_progress: Any = None) -> tuple[str, list[dict]]:
     """对双方核心论点（每方最长的 per_camp 条辩手发言）做谬误检测，渲染注入段。
 
-    返回空串表示降级（未安装/全失败）——调用方据此跳过注入。
+    返回 (注入段文本, marks)；marks=[{seq,camp,speaker,name,quote,explanation,confidence}]（v1.7 SSE/落库用）。
+
+    v1.9.2 起新增：
+    - total_budget：整段质检的总时长上限（默认 2×timeout）。逐条消耗，预算耗尽即停——
+      避免 per_camp=2 时 4 条 × 45s = 3 分钟静默，评委迟迟不开始；
+    - on_progress(done, total)：每条分析前回调，供节点向前端播报进度。
+
+    v2.4 新增 parallel（仅 inproc 模式生效）：多条核心论点交给线程池同时分析，
+    质检墙钟时间从 Σ单条 压到 ≈最慢单条。预算纪律不变：as_completed 按 total_budget
+    收割，超时未完成的直接放弃（对应线程由 shutdown(wait=False) 遗弃，不阻塞调用方）。
     """
     try:
         from elenchus.core.analyzer import analyze_text  # noqa: F401 —— 可用性探测
     except ImportError:
-        return ""
+        return "", []
 
     picked = _pick_core(speeches, per_camp)
     if not picked:
-        return ""
+        return "", []
 
+    import time as _time
+
+    budget = total_budget if total_budget and total_budget > 0 else timeout * 2
+    deadline = _time.monotonic() + budget
     client: _McpStdioClient | None = None
     findings_lines: list[str] = []
+    marks: list[dict] = []
+    use_parallel = parallel > 1 and mode == "inproc" and len(picked) > 1
+
+    def notify(done: int) -> None:
+        if on_progress is not None:
+            try:
+                on_progress(done, len(picked))
+            except Exception:  # noqa: BLE001 —— 进度回调失败不影响分析
+                pass
+
     try:
         if mode == "mcp":
-            client = _McpStdioClient(timeout=timeout)
-        for speech in picked:
+            client = _McpStdioClient(timeout=timeout)  # stdio 子进程单管道，天然串行
+        if use_parallel:
+            workers = max(1, min(int(parallel), len(picked)))
+            pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="elenchus-qc")
+            futures = {
+                pool.submit(analyze_one, s.text, check=check, timeout=timeout, mode=mode): s
+                for s in picked
+            }
+            done_count = 0
             try:
-                result = analyze_one(speech.text, check=check, timeout=timeout, mode=mode, client=client)
-            except Exception:  # noqa: BLE001 —— 单条失败跳过
-                continue
-            for f in (result.get("findings") or [])[:4]:
-                name = f.get("name", "?")
-                quote = (f.get("quote") or "")[:60]
-                conf = f.get("confidence", "?")
-                findings_lines.append(
-                    f"- [{CAMP_CN[speech.camp]}·{speech.speaker}] {name}（{conf}）：引用“{quote}”"
-                )
+                # 预算收割：到点即停，未完成的放弃（线程遗弃由 shutdown(wait=False) 处理）
+                for fut in concurrent.futures.as_completed(futures, timeout=budget):
+                    speech = futures[fut]
+                    try:
+                        result = fut.result()
+                    except Exception:  # noqa: BLE001 —— 单条失败跳过
+                        continue
+                    done_count += 1
+                    notify(done_count - 1)
+                    _collect_findings(speech, result, findings_lines, marks)
+            except concurrent.futures.TimeoutError:
+                pass  # 预算耗尽：已完成的照常采用
+            finally:
+                pool.shutdown(wait=False, cancel_futures=True)
+        else:
+            for idx, speech in enumerate(picked):
+                remaining = deadline - _time.monotonic()
+                if remaining <= 1.0:
+                    break  # 预算耗尽：守卫评委阶段不被质检拖住
+                notify(idx)
+                try:
+                    result = analyze_one(speech.text, check=check, timeout=min(timeout, remaining),
+                                         mode=mode, client=client)
+                except Exception:  # noqa: BLE001 —— 单条失败跳过
+                    continue
+                _collect_findings(speech, result, findings_lines, marks)
     except Exception:  # noqa: BLE001 —— 整体失败降级
-        return ""
+        return "", []
     finally:
         if client is not None:
             client.close()
 
     if not findings_lines:
-        return ""
-    return ("【机器论证分析】（Elenchus 工具检测，仅供参考——每条须你自行核验引用与结论后才可采信）\n"
+        return "", []
+    text = ("【机器论证分析】（Elenchus 工具检测，仅供参考——每条须你自行核验引用与结论后才可采信）\n"
             + "\n".join(findings_lines))
+    return text, marks
+
+
+def analyze_speeches(speeches: list[Speech], **kwargs) -> str:
+    """兼容旧签名：仅返回注入段文本。"""
+    return analyze_speeches_detailed(speeches, **kwargs)[0]
+
+
 
 
 def _pick_core(speeches: list[Speech], per_camp: int) -> list[Speech]:

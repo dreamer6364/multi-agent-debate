@@ -15,7 +15,7 @@ function stanceSummary(raw: string): string {
 function TopicRow({ topic, onLaunch, onDelete }: {
   topic: TopicItem;
   onLaunch: (t: TopicItem) => void;
-  onDelete: (id: number) => void;
+  onDelete: (t: TopicItem) => void;
 }) {
   return (
     <div className="topic-row">
@@ -25,13 +25,14 @@ function TopicRow({ topic, onLaunch, onDelete }: {
           {topic.title}
           {topic.is_builtin && <span className="src-badge">内置</span>}
           {!topic.is_builtin && (
-            <a
-              href="#"
-              onClick={(e) => { e.preventDefault(); onDelete(topic.id); }}
-              style={{ fontSize: 12, color: "var(--con-deep)", marginLeft: 10 }}
+            <button
+              className="neu-btn"
+              style={{ padding: "2px 10px", fontSize: 12, marginLeft: 10, color: "var(--con-deep)" }}
+              title="从辩题库删除"
+              onClick={(e) => { e.stopPropagation(); onDelete(topic); }}
             >
               删除
-            </a>
+            </button>
           )}
         </div>
         <div className="topic-row-stance">
@@ -52,7 +53,7 @@ function TopicRow({ topic, onLaunch, onDelete }: {
 }
 
 export default function TopicsPage() {
-  const { message } = AntApp.useApp();
+  const { message, modal } = AntApp.useApp();
   const queryClient = useQueryClient();
   const { data: topics = [] } = useQuery({ queryKey: ["topics"], queryFn: listTopics });
   const { data: debatesData } = useQuery({
@@ -99,13 +100,54 @@ export default function TopicsPage() {
     }
   };
 
-  const remove = async (id: number) => {
-    try {
-      await deleteTopic(id);
-      await queryClient.invalidateQueries({ queryKey: ["topics"] });
-    } catch {
-      message.error("删除失败（可能已被比赛引用）");
-    }
+  /** 后端错误信封的 message / code（errors.py），用于区分"被引用"与其它失败 */
+  const errInfo = (err: unknown) =>
+    (err as { response?: { data?: { code?: string; message?: string } } })?.response?.data ?? {};
+
+  /** 辩题被历史场次引用时的二次确认：连带删除这些场次（发言/评分卡一并清掉） */
+  const forceRemove = (topic: TopicItem) => {
+    modal.confirm({
+      title: "连同历史场次一起删除？",
+      content: `「${topic.title}」名下已有比赛记录。删除辩题会同时删除这些场次的全部发言与评分卡，不可恢复；若有进行中的场次，请先终止比赛。`,
+      okText: "一起删除",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await deleteTopic(topic.id, true);
+          message.success("辩题与相关历史已删除");
+          await queryClient.invalidateQueries({ queryKey: ["topics"] });
+          await queryClient.invalidateQueries({ queryKey: ["debates"] });
+        } catch (err) {
+          message.error(errInfo(err).message || "删除失败");
+        }
+      },
+    });
+  };
+
+  const remove = (topic: TopicItem) => {
+    modal.confirm({
+      title: "删除辩题？",
+      content: `「${topic.title}」将从辩题库移除。`,
+      okText: "删除",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await deleteTopic(topic.id);
+          message.success("辩题已删除");
+          await queryClient.invalidateQueries({ queryKey: ["topics"] });
+        } catch (err) {
+          const info = errInfo(err);
+          if (info.code === "TOPIC_IN_USE") {
+            // 先关掉当前弹窗，再问是否连带删除历史（避免两个确认框叠在一起）
+            window.setTimeout(() => forceRemove(topic), 120);
+            return;
+          }
+          message.error(info.message || "删除失败");
+        }
+      },
+    });
   };
 
   return (
@@ -148,7 +190,7 @@ export default function TopicsPage() {
 
       <div className="topic-list">
         {topics.map((t) => (
-          <TopicRow key={t.id} topic={t} onLaunch={setLaunchTarget} onDelete={(id) => void remove(id)} />
+          <TopicRow key={t.id} topic={t} onLaunch={setLaunchTarget} onDelete={remove} />
         ))}
       </div>
 

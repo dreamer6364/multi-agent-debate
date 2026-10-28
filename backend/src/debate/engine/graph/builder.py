@@ -5,6 +5,7 @@ from langgraph.graph import END, START, StateGraph
 
 from ..nodes import (
     make_attack_node,
+    make_closing_ceremony_node,
     make_closing_node,
     make_cross_node,
     make_free_node,
@@ -31,6 +32,7 @@ _NODE_FACTORIES = {
     "closing": make_closing_node,
     "judging": make_judging_node,
     "verdict": make_verdict_node,
+    "closing_ceremony": make_closing_ceremony_node,
 }
 
 

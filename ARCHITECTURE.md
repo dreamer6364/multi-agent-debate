@@ -111,16 +111,17 @@
 
 ## 5. LangGraph 引擎设计（内嵌于后端 `engine/`）
 
-### 5.1 图拓扑（完整版 10 节点；lite 赛制裁剪为 5 节点）
+### 5.1 图拓扑（完整版 11 节点；lite 裁剪为 8 节点，但主席开场/致辞两端必留）
 
 ```mermaid
 graph TD
     START --> N1[主席开场] --> N2[开篇立论] --> N3[质询一辩] --> N4[驳论]
     N4 --> N5[攻辩盘问] --> N6[攻辩小结] --> N7[自由辩论] --> N8[总结陈词]
-    N8 --> N9[评委点评·3人并行] --> N10[宣判闭幕] --> END
+    N8 --> N9[评委点评·3人并行] --> N10[宣判闭幕] --> N11[主席致辞] --> END
 ```
 
-- full / lite 两套挂载由 `graph/builder.py` 构建（lite：立论→驳论→自由辩→总结→点评，PRD §4.1）。
+- full / lite 两套挂载由 `graph/builder.py` 构建（lite：主席开场→立论→驳论→自由辩→总结→点评→宣判→主席致辞）。
+  v2.2 修订：lite 此前漏挂 `opening`，主席引题演讲永不产生（前端立论框架常年空白）。
 - 环节内循环伪代码、`DebateState`、自由辩分别计时逻辑与 v1.0 相同：状态含 `transcript / phase_index / clock / digest / scorecards / verdict`。
 
 ### 5.2 Agent 与 Prompt 资产

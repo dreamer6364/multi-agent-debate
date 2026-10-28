@@ -42,6 +42,7 @@ procedure:
     attack_summary: 1.5     # 攻辩小结（每人）
     free_debate: 4.0        # 自由辩论（每队）
     closing: 3.0            # 总结陈词（每人）
+    closing_ceremony: 1.5   # 主席结束致辞（仅导出口径，不计入赛制时长）
   free_debate_turn_cap: 0.5 # 自由辩单次发言上限（分钟，模拟短打）
 model:
   temperature: { debater: 0.85, judge: 0.3, chair: 0.3, digest: 0.2 }
@@ -165,11 +166,11 @@ export:
 
 ## 4. 引擎行为规格
 
-### 4.1 环节流程表（full 赛制，phase 1~10）
+### 4.1 环节流程表（full 赛制，phase 1~11）
 
 | phase | 名称 | 发言序列 | 单次预算 |
 |---|---|---|---|
-| 1 | 主席开场 | chair（介绍辩题/双方/评委/规则） | 220 字 |
+| 1 | 主席开场 | chair（**开篇引题演讲**：原样点题→现实张力→双方分歧焦点→双方主张预告→看点；随后报幕介绍辩题/双方/评委/规则并宣布开始） | 引题 420 字（不计赛制时长）/ 报幕 220 字 |
 | 2 | 开篇立论 | pro-1 → con-1 | 660 字 |
 | 3 | 质询一辩 | (con-2 问 ↔ pro-1 答) → (pro-2 问 ↔ con-1 答) | 每组 330 字，问答共享 |
 | 4 | 驳论 | con-2 → pro-2 | 440 字 |
@@ -179,8 +180,10 @@ export:
 | 8 | 总结陈词 | con-4 → pro-4 | 660 字 |
 | 9 | 评委点评 | 3 评委并行（各出 ScoreCard + 点评文本） | — |
 | 10 | 宣判闭幕 | chair（投票、总分、胜方、致谢） | — |
+| 11 | 主席致辞 | chair（**结束致辞**：回望辩题留下的真问题→各一句肯定双方最有价值的交锋（不比较优劣）→致谢评委与观众并宣布结束；不得改判、不得解释评委打分） | 320 字 |
 
-lite 赛制仅执行 phase 2、4、7、8、9（发言序列不变）。
+lite 赛制执行 phase 1、2、4、7、8、9、10、11（发言序列不变）。
+v2.2 起 phase 1 与 phase 11 属于"仪式骨架"，两种赛制都必须执行——此前 lite 缺少主席开场，立论框架页的主席引题演讲因此永远为空。
 
 ### 4.2 计时规格（确定性代码 `sim/timer.py`）
 
@@ -240,12 +243,32 @@ lite 赛制仅执行 phase 2、4、7、8、9（发言序列不变）。
 - highlights/weaknesses 每侧 2~3 条，评委回调系统校验条数，不满足则重试。
 - 解析失败 2 次后：该评委记弃权卡（scores 全 0、vote 缺席、标注"输出异常弃权"）。
 
+**评审环节不可挂起（v1.9.2，硬性不变量）**
+
+| 环节 | 上限 | 超限行为 |
+| --- | --- | --- |
+| Elenchus 机器质检 | `tools.elenchus.total_budget_seconds`（默认 90s）+ 10s 外层兜底 | 立即放弃质检，评委照常开始 |
+| 单评委评审 | `judges.timeout_seconds`（默认 240s） | 按规则弃权，旁注"评审超时" |
+| 评审心跳 | `judges.heartbeat_seconds`（默认 10s） | 推 `judging_progress`，UI 显示已评议时长 |
+| 整场引擎 | `engine.max_duration_seconds`（默认 5400s）+ `cancel_grace_seconds` | 置取消旗标；宽限内未收束则按 `failed` 收尾并发终态 |
+| 收尾落库 | `engine.drain_timeout_seconds`（默认 15s） | 有界等待后放弃，仍发终态 |
+
+**评分环节并行（v2.4）**：质检与评委评审同时开跑——质检在独立线程先行，3 位评委立即并行评审；
+逻辑评委最多等 `min(total_budget, 20s)` 注入质检结论，等不到就先评审（谬误标注完成后仍以 `fallacy`
+事件挂到质检报告）；评审结束时最多再等 30s 补收割。质检内部多条核心论点按 `tools.elenchus.parallel`
+（默认 2）线程池并行分析。评审期 LLM 限速间隔由 `judges.throttle_seconds`（默认 5s）临时覆盖全局值，
+节点结束后恢复。评分环节总耗时从「质检 + 评审」压到「max(质检, 评审)」。
+
+任何路径（含 `_finalize` 写库异常）都必须向总线发出终态 `status` 并关闭总线——否则前端会永久停在"评委合议中"。
+
 ### 4.8 胜负判定规格（确定性代码）
 
 1. 汇总 ScoreCard：团体总分 = 各评委六维之和的平均值（四舍五入）；
 2. winner = vote 多数方；评委弃权不计入票数；
 3. 平票（偶数评委或弃权导致）：比 team_totals，高者胜；
-4. 再平：`best_speaker` 得票最多者所在队胜（best_speaker 取各评委提名众数）。
+4. 再平：`best_speaker` 得票最多者所在队胜（best_speaker 取各评委提名众数）；
+5. **仍平（v1.9，不出现平局）**：由评议长做「智能终裁」——把双方立场/破题要点、战局摘要、评委评分与亮点不足交给 LLM，要求二选一输出 `{"winner","reason"}`，`decisive_rule=final_judge`，理由随宣判词与导出文稿展示；
+6. 终裁 LLM 不可用或输出不合法：走规则化终裁——按维度权重（statement → rebuttal_cross → attack → free → closing → conduct）逐项比较均值，其次比较最佳辩手归属票数，最后判先手方（正方）胜。任何路径都必须产出胜方。
 
 ### 4.9 LLM 失败降级
 
@@ -288,6 +311,7 @@ lite 赛制仅执行 phase 2、4、7、8、9（发言序列不变）。
 | `GET /api/topics` | 200 `{items: [{id, title, pro_points, con_points, is_builtin, owner_id, created_at}]}`，内置 + 自己的 |
 | `POST /api/topics` | 201；body `{title(≤200), pro_points, con_points}`；owner = 当前用户 |
 | `DELETE /api/topics/{id}` | 204；仅属主；内置辩题返回 FORBIDDEN；被引用时 409 `TOPIC_IN_USE` |
+| `DELETE /api/topics/{id}?force=true` | 204；连同名下历史场次（speeches / scorecards / debates）一并删除；该辩题仍有 pending/running 场次时 409 `TOPIC_IN_USE` |
 
 #### 比赛
 
@@ -298,6 +322,8 @@ lite 赛制仅执行 phase 2、4、7、8、9（发言序列不变）。
 | `GET /api/debates/{id}` | 200 完整详情：`{id, topic: {…}, format, status, cfg, winner, best_speaker, team_totals, usage, error, started_at, finished_at}` |
 | `GET /api/debates/{id}/speeches?after_seq=0&limit=200` | 200 `{items: [speech…], has_more}`；seq 升序；after_seq 增量拉取 |
 | `POST /api/debates/{id}/stop` | 仅 running → 协作式取消（引擎在节点边界检查取消标志）→ 200 `{status: "stopped"}`；否则 DEBATE_NOT_RUNNING |
+| `DELETE /api/debates/{id}` | 204；仅属主；删除该场归档（级联清理 speeches / scorecards）；pending/running → 409 `DEBATE_ACTIVE`（须先终止） |
+| `DELETE /api/debates` | 200 `{deleted: n}`；清空本人全部终态场次（finished/failed/stopped），进行中的场次不受影响 |
 | `GET /api/debates/{id}/export?format=md\|html` | 仅 finished；md → `text/markdown`，html → `text/html`；否则 EXPORT_NOT_READY |
 | `GET /api/health` | 200 `{status:"ok", db:"ok"}`（免鉴权） |
 
@@ -328,6 +354,7 @@ event: timer         data: {"type":"warning|time_up","speaker":"pro-1"}
 event: interrupt     data: {"by":"con-2","reason":"请正面回答"}
 event: phase_end     data: {"phase":3}
 event: judging       data: {"judges":["judge-logic","judge-content","judge-expression"]}
+event: judging_progress data: {"stage":"质检|质检 2/4|评审|完成","completed":1,"total":3,"elapsed":42.7}   # v1.9.2 评审心跳（默认 10s 一次）：前端显示"已评议 Xs"，并作卡死自检
 event: verdict       data: {"votes":{"pro":2,"con":1},"team_totals":{"pro":82.3,"con":79.7},"winner":"pro","best_speaker":"pro-3","scorecards":[…3 张]}
 event: status        data: {"status":"running|finished|failed|stopped","error":null}
 event: error         data: {"message":"…"}
@@ -386,12 +413,14 @@ event: error         data: {"message":"…"}
 ### 9.2 `useDebateStream(debateId)` hook 行为
 
 1. 先 `GET speeches?after_seq=0` 补历史 → 2. 打开 `EventSource(/api/debates/{id}/stream?after_seq={最后seq})` → 3. 按事件类型分发到 zustand store → 4. `onerror`：EventSource 原生重连（自带 Last-Event-ID 但被忽略）；连续失败 3 次降级为 **5 秒轮询** `speeches?after_seq` → 5. 收到终态 `status` 后 close。
+   6. **状态对账（v1.9.2）**：订阅期间每 15s 核对一次 `GET /debates/{id}`；服务端若因异常漏发终态，前端仍能据此收敛并关闭连接——不允许 UI 永久停在“评委合议中”。
 
 ### 9.3 zustand store（直播页）
 
 ```ts
 { status, phase, phaseName, speeches: Speech[], timerState: 'normal'|'warning'|'time_up',
-  judging: boolean, verdict: Verdict | null, connected: boolean,
+  judging: boolean, judgingProgress: { stage, completed, total, elapsed } | null,
+  verdict: Verdict | null, connected: boolean,
   appendSpeech, setPhase, setTimer, setVerdict, reset }
 ```
 

@@ -59,8 +59,8 @@ export async function createTopic(body: {
   await api.post("/topics", body);
 }
 
-export async function deleteTopic(id: number): Promise<void> {
-  await api.delete(`/topics/${id}`);
+export async function deleteTopic(id: number, force = false): Promise<void> {
+  await api.delete(`/topics/${id}`, { params: force ? { force: true } : undefined });
 }
 
 export async function createDebate(body: {
@@ -92,4 +92,14 @@ export async function getSpeeches(id: number | string, afterSeq = 0): Promise<Sp
 
 export async function stopDebate(id: number | string): Promise<void> {
   await api.post(`/debates/${id}/stop`);
+}
+
+/** 删除单场历史归档（连同发言与评分卡）；进行中的场次后端会拒绝，需先终止。 */
+export async function deleteDebate(id: number | string): Promise<void> {
+  await api.delete(`/debates/${id}`);
+}
+
+/** 清空历史归档：删除本人全部已结束/失败/停止的场次，返回删除条数。 */
+export async function clearArchivedDebates(): Promise<{ deleted: number }> {
+  return (await api.delete<{ deleted: number }>("/debates")).data;
 }

@@ -18,12 +18,20 @@ backend/debate-e2e.db
 frontend/test-results/
 frontend/playwright-report/
 
+# vitest 本地临时目录（沙箱 TMPDIR 回落）
+frontend/.tmp/
+backend/.tmp/
+
+# 本地 uvicorn 启动日志
+backend/.uvicorn.*.log
+
 # 前端（M5 起）
 node_modules/
 frontend/dist/
 
 # ZCode 本地工具（技能等，非项目代码）
 .zcode/
+.workbuddy/
 
 # 构建产物
 dist/

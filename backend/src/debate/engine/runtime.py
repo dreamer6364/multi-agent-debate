@@ -32,6 +32,8 @@ class DebateContext:
     compressor: Callable[[list[Speech]], dict[str, str]]
     format: DebateFormat
     evidence: dict[Camp, list[EvidenceCard]] = None  # RAG 预检索结果（v1.4；双方各自 top_k）
+    retriever: Any | None = None  # v1.8：BM25 检索器（辩手工具 search_evidence 动态检索用）
+    web_provider: str | None = None  # v1.8：已解析的联网搜索 provider（none=禁用；工具 search_web 用）
     on_speech: Callable[[Speech], None] | None = None
     on_event: Callable[[dict], None] | None = None
     on_delta: Callable[[int, str, int, str, str], None] | None = None  # (seq, delta, attempt, speaker, camp)；delta="" 表示 attempt 重置信号

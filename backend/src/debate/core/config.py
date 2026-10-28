@@ -17,6 +17,8 @@ class PhasesConfig(BaseModel):
     attack_summary: float = 1.5
     free_debate: float = 4.0
     closing: float = 3.0
+    # v2.2：主席结束致辞（phase 11）——只用于导出口径，不计入赛制时长
+    closing_ceremony: float = 1.5
 
 
 class ProcedureConfig(BaseModel):
@@ -48,6 +50,11 @@ class ContextConfig(BaseModel):
 
 class JudgesConfig(BaseModel):
     count: int = 3
+    timeout_seconds: float = 240.0  # 单评委评审总时长上限（超时按规则弃权，绝不阻塞评分环节）
+    heartbeat_seconds: float = 10.0  # 评审期进度心跳间隔（前端据此显示"已评议 Xs"，也是卡死自检信号）
+    # v2.4：评审期临时覆盖全局限速间隔。评委只有 3 次调用，不需要辩论期那么保守的 15s 间隔——
+    # 3 位评委并行时按 15s 排队会白白多等 ~30s。设 0 关闭评审期限速；None 表示沿用全局值。
+    throttle_seconds: float | None = 5.0
 
     @field_validator("count")
     @classmethod
@@ -55,6 +62,19 @@ class JudgesConfig(BaseModel):
         if value not in (1, 3, 5):
             raise ValueError("judges.count 仅允许 1 / 3 / 5")
         return value
+
+
+class EngineConfig(BaseModel):
+    """引擎总时限（v1.9.2）：任何单点卡死都不允许场次永远停在 running。
+
+    - max_duration_seconds：整场（全部环节 + 质检 + 评审 + 宣判）硬上限，到点置取消旗标；
+    - cancel_grace_seconds：置旗标后等引擎在节点边界退出的宽限，超时按 failed 收尾；
+    - drain_timeout_seconds：收尾时落库队列的排空上限（drain 任务异常也不会永久挂起）。
+    """
+
+    max_duration_seconds: float = 5400.0
+    cancel_grace_seconds: float = 90.0
+    drain_timeout_seconds: float = 15.0
 
 
 class QuotaConfig(BaseModel):
@@ -78,12 +98,25 @@ class ElenchusConfig(BaseModel):
     check: str = "fallacy"    # fallacy / rhetoric / bias / scam / all
     per_camp: int = 2         # 每方分析的核心论点数
     timeout_seconds: float = 45.0
+    total_budget_seconds: float = 90.0  # 质检总预算：耗尽即停，绝不拖住评委阶段
+    parallel: int = 2         # v2.4：多条核心论点并行分析度（1 = 顺序；mcp 模式强制顺序）
+
+
+class AgentToolsConfig(BaseModel):
+    """辩手 Agent 工具循环（v1.8）：模型经 function calling 主动调工具共同生成发言。"""
+
+    enabled: bool = True
+    max_tool_rounds: int = 2          # 每条发言最多工具往返轮数（控制免费档 RPM 成本）
+    tool_timeout_seconds: float = 15.0
+    # 启用工具循环的环节（自由辩/质询为短打高频环节，默认不开以控成本；动态证据仍全局生效）
+    phases: list[str] = ["statement", "rebuttal", "attack_summary", "closing"]
 
 
 class ToolsConfig(BaseModel):
     """运行时工具层（v1.6）：Elenchus 论证分析等，全部静默降级。"""
 
     elenchus: ElenchusConfig = ElenchusConfig()
+    agent: AgentToolsConfig = AgentToolsConfig()
 
 
 class WebSearchConfig(BaseModel):
@@ -106,6 +139,7 @@ class AppConfig(BaseModel):
     model: ModelConfig = ModelConfig()
     context: ContextConfig = ContextConfig()
     judges: JudgesConfig = JudgesConfig()
+    engine: EngineConfig = EngineConfig()
     quota: QuotaConfig = QuotaConfig()
     conduct: ConductConfig = ConductConfig()
     rag: RagConfig = RagConfig()

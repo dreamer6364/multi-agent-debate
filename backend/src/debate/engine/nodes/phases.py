@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from ..agents.context import build_debater_messages, estimate_tokens
-from ..rag.retriever import render_evidence
+from ..rag.retriever import detect_topic_domain, render_evidence
 from ..llm.gateway import LLMExhausted, LLMResult
 from ..procedure import PHASE_NAMES, PHASE_NUMBERS, minutes_for
 from ..runtime import DebateAborted, DebateCancelled, DebateContext
@@ -20,6 +20,7 @@ from ..sim.conduct import (
     strip_interrupt_marker,
     strip_stage_tags,
 )
+from ..tools.agent_tools import run_debater_with_tools, tools_enabled_for
 import re as _re
 
 # v1.5 辩论纪律指令（治用户报告的五大问题：流程/论据/逻辑/复读）
@@ -33,6 +34,55 @@ _EVIDENCE_RULES = (
     "②描述性研究结论（如认知偏差）只用于揭示人的局限，不得直接推出价值选择结论；"
     "③无样本与方法的网络调查不得作为核心论据；④同一来源全场至多引用两次，优先轮换论据。"
 )
+
+# v1.8 表达多样性：切入点风格池——按"该辩手已发言次数"轮换，杜绝每条发言同一套路
+_STYLE_ANGLES = (
+    "从一个具体的生活场景或案例切入",
+    "从一个数据、事实或研究结论切入",
+    "从对方论证的隐含前提出发追问",
+    "用一个类比或思想实验展开",
+    "从判准（本题胜负标准）的争夺切入",
+    "把对方立场推到极端情形做归谬",
+    "从关键概念的辨析（X 与 Y 的边界）切入",
+    "抓住对方原话中的矛盾点展开",
+    "从利益相关方（谁受益、谁受损）切入",
+    "从时间维度（短期代价 vs 长期收益）切入",
+)
+
+_ANTI_TEMPLATE_RULE = (
+    "【表达多样性（硬性要求）】所有措辞由你临场组织：禁止照搬角色文件中的任何示例句式；"
+    "禁止与你本场已有发言使用相同的开头短语或相同行文结构；"
+    "禁止机械套用'首先/其次/最后''综上所述'的三段式模板；"
+    "同一场比赛中不得复述本方任何人已说过的例证与金句。"
+)
+
+
+def _style_hint(ctx: DebateContext, speaker: str) -> str:
+    """按辩手已发言次数轮换切入点提示 + 反模板硬约束（v1.8 治语言固定）。"""
+    used = sum(1 for s in ctx.speeches if s.speaker == speaker)
+    angle = _STYLE_ANGLES[used % len(_STYLE_ANGLES)]
+    return f"【本条切入建议】{angle}（可临场调整）。{_ANTI_TEMPLATE_RULE}"
+
+
+def _dynamic_evidence(ctx: DebateContext, spec, recent: list[Speech]):
+    """v1.8 动态证据：按辩题+对方最近发言构造查询逐条检索（不同发言吃到不同证据卡）。
+
+    检索不可用或无结果时回落全场预注入的固定证据（v1.4 行为）。
+    """
+    fallback = (ctx.evidence or {}).get(spec.camp, [])
+    if ctx.retriever is None:
+        return fallback
+    last_opponent = next(
+        (s.text for s in reversed(recent) if s.camp is not spec.camp and s.camp is not Camp.NEUTRAL),
+        "",
+    )
+    query = f"{ctx.topic.title} {last_opponent[:80]}"
+    domain = detect_topic_domain(f"{ctx.topic.title} {ctx.topic.pro_stance} {ctx.topic.con_stance}")
+    try:
+        cards = ctx.retriever.search(query, top_k=3, topic_domain=domain)
+    except Exception:  # noqa: BLE001 —— 检索失败静默回落
+        return fallback
+    return cards or fallback
 
 def _book_names(cards) -> list[str]:
     """从证据卡来源提取书名《…》（引用记账用）。"""
@@ -120,6 +170,16 @@ def _update_digest(ctx: DebateContext, state: dict, new_speeches: list[Speech]) 
     )
 
 
+def next_seq(speeches: list[Speech]) -> int:
+    """发言序号分配：取已有最大序号 +1。
+
+    v2.2：不再用 ``len(...)+1``——历史数据里出现缺号/重号时，len 会算出已被占用的
+    序号，落库直接撞 ``speeches.uq_debate_seq``（用户侧表现为"评审未能完成：
+    Duplicate entry ... for key 'speeches.uq_debate_seq'"）。按 max+1 分配天然单调。
+    """
+    return max((s.seq for s in speeches), default=0) + 1
+
+
 def _emit(ctx: DebateContext, new: list[Speech], speech: Speech) -> None:
     new.append(speech)
     ctx.speeches.append(speech)
@@ -139,29 +199,51 @@ def _ask(
     recent: list[Speech],
     digest_text: str,
     allow_interrupt_marker: bool = False,
+    phase_key: str | None = None,
 ) -> Speech:
-    """调用一名辩手/主席的 LLM，产出一条发言（含守则扫描、截断、降级占位）。"""
+    """调用一名辩手/主席的 LLM，产出一条发言（含守则扫描、截断、降级占位）。
+
+    v1.8：白名单环节走 Agent 工具循环（LLM 主动调 RAG/联网/Elenchus 自检共同生成）；
+    其余环节保持流式单次调用。两种路径都吃动态证据与表达多样性指令。
+    """
     config = ctx.config
     spec = ctx.agents[speaker]
-    seq = len(recent) + 1
+    seq = next_seq(recent)
     if cap_words <= 0:  # 防御性出口：调用方保证预算为正
         raise DebateAborted(f"{speaker} 的发言预算非正: {cap_words}")
-    camp_cards = (ctx.evidence or {}).get(spec.camp, [])
+    camp_cards = _dynamic_evidence(ctx, spec, recent)
     extra_rules = _EVIDENCE_RULES + _usage_line(ctx, camp_cards)
     if not allow_interrupt_marker:
         extra_rules += _NO_INTERRUPT_RULE
+    full_instruction = f"{instruction}\n{extra_rules}{_style_hint(ctx, speaker)}（本次发言预算约 {cap_words} 字）"
     messages = build_debater_messages(
         spec=spec,
         topic=ctx.topic,
         digest_text=digest_text,
         recent=recent,
         evidence_text=render_evidence(camp_cards),
-        instruction=f"{instruction}\n{extra_rules}（本次发言预算约 {cap_words} 字）",
+        instruction=full_instruction,
         recent_k=config.context.recent_speeches,
         max_input_tokens=config.context.max_input_tokens,
     )
     try:
-        if ctx.on_delta is not None:
+        if tools_enabled_for(ctx, phase_key):
+            # 工具循环路径（v1.8）：非流式，LLM 可先调工具取材/自检再输出正文；
+            # 内部任何失败已回落普通调用，此处再兜一层异常出口
+            try:
+                result, _used = run_debater_with_tools(
+                    ctx, messages=messages, instruction=full_instruction, remaining_words=cap_words,
+                )
+            except LLMExhausted:
+                raise
+            except Exception:  # noqa: BLE001
+                result = ctx.gateway.complete(
+                    messages, tier="debater",
+                    temperature=config.model.temperature.debater,
+                    max_tokens=int(cap_words * 1.6) + 64,
+                )
+            ctx.degradation_streak = 0
+        elif ctx.on_delta is not None:
             # 流式路径（v2.1 speech_delta）：边生成边推送；attempt 变化先发重置信号（delta=""）
             holder = {"attempt": 0}
 
@@ -235,7 +317,7 @@ def make_monologue_node(phase_key: str, ctx: DebateContext):
             speech = _ask(
                 ctx, speaker=speaker, phase=phase, phase_name=phase_name,
                 instruction=_mono_instruction(phase_key), cap_words=budget, hard_cut=False,
-                recent=base + new, digest_text=digest_text,
+                recent=base + new, digest_text=digest_text, phase_key=phase_key,
             )
             clock_notes = clock.consume(speech.word_count)
             speech.side_notes.extend(clock_notes)
@@ -268,7 +350,7 @@ def make_cross_node(ctx: DebateContext):
                     ctx, speaker=questioner, phase=phase, phase_name=phase_name,
                     instruction="你正在质询：提出简短、指向明确的问题，一次一问。必要时以 [打断] 加理由打断对方冗长回答。",
                     cap_words=clock.remaining, hard_cut=True, recent=base + new, digest_text=digest_text,
-                    allow_interrupt_marker=True,
+                    allow_interrupt_marker=True, phase_key="cross_examination",
                 )
                 clean, reason = parse_interrupt(question.text)
                 question.text = clean
@@ -289,6 +371,7 @@ def make_cross_node(ctx: DebateContext):
                     ctx, speaker=respondent, phase=phase, phase_name=phase_name,
                     instruction="你正在被质询：只答不问，回答简洁、正面、不回避。",
                     cap_words=clock.remaining, hard_cut=True, recent=base + new, digest_text=digest_text,
+                    phase_key="cross_examination",
                 )
                 answer_notes = clock.consume(answer.word_count)
                 answer.side_notes.extend(answer_notes)
@@ -322,6 +405,7 @@ def make_attack_node(ctx: DebateContext):
                     ctx, speaker=questioner, phase=phase, phase_name=phase_name,
                     instruction="你正在攻辩盘问：一次一问，可设计二难陷阱题、归谬题、数据逼问题；被盘问方只能回答，不能反问。",
                     cap_words=clock.remaining, hard_cut=True, recent=base + new, digest_text=digest_text,
+                    phase_key="attack",
                 )
                 question.side_notes.extend(clock.consume(question.word_count))
                 _emit(ctx, new, question)
@@ -331,6 +415,7 @@ def make_attack_node(ctx: DebateContext):
                     ctx, speaker=target, phase=phase, phase_name=phase_name,
                     instruction="你正在被盘问：只能回答，不能反问；正面回应问题本身。",
                     cap_words=clock.remaining, hard_cut=True, recent=base + new, digest_text=digest_text,
+                    phase_key="attack",
                 )
                 answer_notes = clock.consume(answer.word_count)
                 answer.side_notes.extend(answer_notes)
@@ -377,6 +462,7 @@ def make_free_node(ctx: DebateContext):
                              "不要使用'请正面回答'等质询口吻；禁止重复本方已陈述过的论据原句（评委视为复读），"
                              "每轮要么深挖对方上一发言的具体漏洞，要么推进新角度。"),
                 cap_words=cap, hard_cut=True, recent=base + new, digest_text=digest_text,
+                phase_key="free_debate",
             )
             if is_hard_evasion(speech.text, previous):
                 speech.side_notes.append("回避追问")
