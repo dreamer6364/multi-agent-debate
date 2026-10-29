@@ -24,7 +24,15 @@ def _points_of(topic: Topic, camp: Camp) -> list[str]:
 
 
 def _points_block(topic: Topic, camp: Camp) -> str:
-    lines = [f"【本方立场】{_stance_of(topic, camp)}", "【本方破题要点】"]
+    # v2.9.1 辩题锚定：辩手 prompt 必须显式携带辩题全文——只有"本方立场+要点"时，
+    # 弱模型会被证据卡议题带偏（实测：爱人辩题全程被科技证据带成 AI 依赖攻防）。
+    lines = [
+        f"【辩题】{topic.title}",
+        "【辩题锚定（最高优先级）】本场辩题只有这一个，全场所有发言必须严格围绕它展开；"
+        "证据卡只是论证素材库，若其主题与辩题分属不同领域，禁止采纳其议题与立场，只可借鉴论证方法。",
+        f"【本方立场】{_stance_of(topic, camp)}",
+        "【本方破题要点】",
+    ]
     lines += [f"- {p}" for p in _points_of(topic, camp)]
     return "\n".join(lines)
 

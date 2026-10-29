@@ -56,6 +56,25 @@ _ANTI_TEMPLATE_RULE = (
     "同一场比赛中不得复述本方任何人已说过的例证与金句。"
 )
 
+# v2.9.1 发言格式防线：免费档模型偶发把辩手发言输出成 JSON/评分卡（实测整场仅此一次，
+# 但两条结辩同时中招）。辩手发言永远不可能是 JSON——凡以 { [ 开头的一律拦截：
+# 带纠正指令重试一次，仍不合格则降级占位，绝不让原始 JSON 上屏。
+# 注意：[打断] 标记也以 [ 开头，但那是合法质询动作（后续流程会剥离），必须豁免。
+_JSON_LEAD = _re.compile(r"^[\[{]")
+_JSON_RETRY_NOTE = (
+    "【重试要求】你上一条输出是 JSON/结构化数据，不是辩论发言，已作废。"
+    "请重新输出辩论发言正文：中文自然语言段落，像真实辩手一样陈词；"
+    "严禁输出 JSON、代码、表格、字段名或任何结构化数据。"
+)
+
+
+def _looks_like_json(text: str) -> bool:
+    """辩手发言的 JSON 粗判：以 { [ 开头即视为格式异常（正常发言永不如此开头）。"""
+    t = (text or "").lstrip()
+    if t.startswith("[打断"):
+        return False  # 质询环节的合法打断标记，非 JSON
+    return bool(_JSON_LEAD.match(t))
+
 
 def _style_hint(ctx: DebateContext, speaker: str) -> str:
     """按辩手已发言次数轮换切入点提示 + 反模板硬约束（v1.8 治语言固定）。"""
@@ -285,6 +304,34 @@ def _ask(
             text=placeholder, side_notes=["LLM 降级"], word_count=len(placeholder),
         )
     text, _ = strip_forbidden_format(result.text.strip())
+    if _looks_like_json(text):
+        # v2.9.1 格式防线：带纠正指令重试一次；仍输出 JSON 则降级占位，绝不上屏原始数据
+        retry_messages = build_debater_messages(
+            spec=spec, topic=ctx.topic, digest_text=digest_text, recent=recent,
+            evidence_text=render_evidence(camp_cards),
+            instruction=f"{full_instruction}\n{_JSON_RETRY_NOTE}",
+            recent_k=config.context.recent_speeches,
+            max_input_tokens=config.context.max_input_tokens,
+        )
+        try:
+            retry = ctx.gateway.complete(
+                retry_messages, tier="debater",
+                temperature=config.model.temperature.debater,
+                max_tokens=int(cap_words * 1.6) + 64,
+            )
+            text, _ = strip_forbidden_format(retry.text.strip())
+            result = retry
+        except LLMExhausted:
+            raise
+        except Exception:  # noqa: BLE001 —— 重试失败走占位
+            pass
+        if _looks_like_json(text):
+            ctx.emit("error", message="LLM 格式异常：该辩手输出了无效内容")
+            placeholder = "[系统] 该辩手输出了无效内容（格式异常），本条发言作废"
+            return Speech(
+                seq=seq, phase=phase, phase_name=phase_name, speaker=speaker, camp=spec.camp,
+                text=placeholder, side_notes=["LLM 格式异常"], word_count=len(placeholder),
+            )
     notes = scan(text, config.conduct.abuse_keywords)
     if not allow_interrupt_marker:
         if has_interrupt_marker(text):

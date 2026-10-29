@@ -47,12 +47,14 @@ class EvidenceRetriever:
         return cls(load_corpus(knowledge_dir))
 
     def search(self, query: str, top_k: int = 3, topic_domain: str = "通用") -> list[EvidenceCard]:
-        """BM25 + 域加权（同域 ×1.6、通用域不降权、跨域 ×0.5）+ 低分阈值过滤。
+        """BM25 + 域加权（同域 ×1.6、通用域不降权、跨域 ×0.25 且高分门槛）+ 低分阈值过滤。
 
-        v1.5：分数经域加权后仍低于 min_score 的卡不注入——宁缺毋滥，
-        防止词汇弱相关的商业/科技卡被硬套到情感辩题。
+        v1.5：分数经域加权后仍低于 min_score 的卡不注入——宁缺毋滥。
+        v2.9.1：跨域闸门收紧（实测弱模型会被跨域证据带偏全场议题）——
+        跨域卡不仅要打折（×0.25），加权重后还必须达到 2.0 的更高门槛才准注入。
         """
         min_score = 1.0
+        cross_min = 2.0  # 跨域卡额外门槛：弱相关直接挡掉
         raw = self._bm25.get_scores(_tokenize(query))
         weighted: list[tuple[int, float]] = []
         for i, score in enumerate(raw):
@@ -60,13 +62,13 @@ class EvidenceRetriever:
                 continue
             card = self.cards[i]
             if card.domain == topic_domain:
-                factor = 1.6
+                factor, floor = 1.6, min_score
             elif card.domain == "通用" or topic_domain == "通用":
-                factor = 1.0
+                factor, floor = 1.0, min_score
             else:
-                factor = 0.5
+                factor, floor = 0.25, cross_min
             adjusted = score * factor
-            if adjusted >= min_score:
+            if adjusted >= floor:
                 weighted.append((i, adjusted))
         weighted.sort(key=lambda pair: pair[1], reverse=True)
         return [self.cards[i] for i, _ in weighted[:top_k]]

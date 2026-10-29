@@ -48,6 +48,18 @@ def test_five_blocks_camp_isolation_and_recent_k(agents, topics):
     assert "[3]" in content and "[8]" in content and "[1]" not in content  # 只留最近 6 条
 
 
+def test_debater_prompt_anchors_topic_title(agents, topics):
+    """v2.9.1 辩题锚定：辩手 prompt 必须显式携带辩题全文（治跨议题漂移）。"""
+    topic = topics[0]
+    messages = build_debater_messages(
+        spec=agents["pro-1"], topic=topic, digest_text="",
+        recent=[], instruction="请立论", recent_k=6,
+    )
+    content = messages[1]["content"]
+    assert f"【辩题】{topic.title}" in content
+    assert "辩题锚定" in content and "严格围绕" in content
+
+
 def test_trim_order_recent_then_digest(agents, topics):
     topic = topics[0]
     messages = build_debater_messages(
