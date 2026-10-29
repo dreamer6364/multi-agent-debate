@@ -9,10 +9,10 @@ procedure:
     rebuttal: 2.0           # 驳论（每人）
     attack: 2.0             # 攻辩盘问（每组）
     attack_summary: 1.5     # 攻辩小结（每人）
-    free_debate: 4.0        # 自由辩论（每队）
+    free_debate: 6.0        # 自由辩论（每队）——v2.9.3 加长对攻时间
     closing: 3.0            # 总结陈词（每人）
     closing_ceremony: 1.5   # 主席结束致辞（仅导出口径，不计入赛制时长）
-  free_debate_turn_cap: 0.5 # 自由辩单次发言上限（分钟，模拟短打）
+  free_debate_turn_cap: 1.5 # 自由辩单次发言上限（分钟）——v2.9.3 放宽，允许完整表达
 
 model:
   temperature:

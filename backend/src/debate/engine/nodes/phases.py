@@ -509,9 +509,13 @@ def make_free_node(ctx: DebateContext):
             previous = [sp.text for sp in base + new if sp.speaker == speaker and sp.phase == phase]
             speech = _ask(
                 ctx, speaker=speaker, phase=phase, phase_name=phase_name,
-                instruction=("你正在自由辩论：你拥有一次完整的表达机会（≤预算字数），对方 likewise——"
-                             "禁止在发言中模拟打断或抢话。一次只打一个点；直接给出你的反驳与论据，"
-                             "不要使用'请正面回答'等质询口吻；禁止重复本方已陈述过的论据原句（评委视为复读），"
+                instruction=("你正在自由辩论：这是全场对抗最激烈的环节。把话说完整再交棒——"
+                             "观点、依据、对对方上一轮的具体回击一次说透，不要为省字数半途收束；"
+                             "篇幅按内容需要自然伸缩，短打可以三两句，交锋胶着时充分展开。"
+                             "每轮至少使用一个反问句（如'难道……吗？''若按对方逻辑，……又将如何？'）"
+                             "直击对方要害，增强对抗性；也可以连续追问，逼对方正面回应。"
+                             "禁止在发言中模拟打断或抢话；"
+                             "禁止重复本方已陈述过的论据原句（评委视为复读），"
                              "每轮要么深挖对方上一发言的具体漏洞，要么推进新角度。"),
                 cap_words=cap, hard_cut=True, recent=base + new, digest_text=digest_text,
                 phase_key="free_debate",

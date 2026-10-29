@@ -15,7 +15,7 @@ class PhasesConfig(BaseModel):
     rebuttal: float = 2.0
     attack: float = 2.0
     attack_summary: float = 1.5
-    free_debate: float = 4.0
+    free_debate: float = 6.0  # v2.9.3：加长对攻时间（每队字数池 = 时长×语速）
     closing: float = 3.0
     # v2.2：主席结束致辞（phase 11）——只用于导出口径，不计入赛制时长
     closing_ceremony: float = 1.5
@@ -24,7 +24,7 @@ class PhasesConfig(BaseModel):
 class ProcedureConfig(BaseModel):
     speed_cpm: int = 220
     phases: PhasesConfig = PhasesConfig()
-    free_debate_turn_cap: float = 0.5
+    free_debate_turn_cap: float = 1.5  # v2.9.3：单轮上限放宽（0.5→1.5 分钟），允许完整表达不硬掐
 
 
 class TemperatureConfig(BaseModel):
