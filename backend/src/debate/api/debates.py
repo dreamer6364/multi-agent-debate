@@ -12,7 +12,7 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import func, select
 
-from ..db.models import DebateRow, GraphSnapshotRow, ScorecardRow, SpeechRow, TopicRow, iso_cn
+from ..db.models import DebateRow, ScorecardRow, SpeechRow, TopicRow, iso_cn
 from ..engine.render.markdown import render_scorecard_md, render_transcript_md
 from ..engine.render.html import render_report_html
 from ..engine.render.xlsx import render_scorecard_xlsx
@@ -236,31 +236,6 @@ async def list_speeches(debate_id: int, after_seq: int = 0, limit: int = 200,
     return {"items": items, "has_more": len(items) == limit}
 
 
-@router.get("/{debate_id}/graphs")
-async def list_graphs(debate_id: int, user=Depends(get_current_user),
-                      session: AsyncSession = Depends(get_session)):
-    """逐轮图快照（v2.5）：归档回看时按版本翻看"上一回合的图"。
-
-    直播期间图由 SSE 实时推送；本接口读的是终态落库的历史全量。
-    """
-    await _owned_debate(session, debate_id, user.id)
-    rows = (await session.execute(
-        select(GraphSnapshotRow).where(GraphSnapshotRow.debate_id == debate_id)
-        .order_by(GraphSnapshotRow.version)
-    )).scalars().all()
-    items = []
-    for row in rows:
-        payload = dict(row.payload_json or {})
-        payload.update({
-            "version": row.version,
-            "round": row.round,
-            "active_node": row.active_node,
-            "views": {"control": row.control, "argument": row.argument},
-        })
-        items.append(payload)
-    return {"items": items}
-
-
 @router.post("/{debate_id}/stop")
 async def stop_debate(debate_id: int, request: Request, user=Depends(get_current_user),
                       session: AsyncSession = Depends(get_session)):
@@ -281,7 +256,6 @@ async def _purge_debates(session: AsyncSession, ids: list[int]) -> int:
     if not ids:
         return 0
     await session.execute(delete(ScorecardRow).where(ScorecardRow.debate_id.in_(ids)))
-    await session.execute(delete(GraphSnapshotRow).where(GraphSnapshotRow.debate_id.in_(ids)))
     await session.execute(delete(SpeechRow).where(SpeechRow.debate_id.in_(ids)))
     result = await session.execute(delete(DebateRow).where(DebateRow.id.in_(ids)))
     return result.rowcount or 0
@@ -398,10 +372,6 @@ async def stream_debate(debate_id: int, request: Request, after_seq: int = 0,
             if bus.last_phase_start:
                 yield _sse({"event": "phase_start", "id": bus.allocate_id(),
                             "data": bus.last_phase_start})
-            # v2.5：重连即补当前时刻的图（否则刷新后要等下一次发言图才出现）
-            if bus.last_graph:
-                yield _sse({"event": "graph", "id": bus.allocate_id(),
-                            "data": bus.last_graph})
             # v2.7：重连补当前时刻的复盘泳道总结
             if bus.last_swimlane:
                 yield _sse({"event": "swimlane", "id": bus.allocate_id(),

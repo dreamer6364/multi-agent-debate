@@ -14,7 +14,6 @@ class EventBus:
         self._subscribers: set[asyncio.Queue] = set()
         self._non_speech_id = 0
         self.last_phase_start: dict | None = None  # 重连快照用（SPEC §6.1）
-        self.last_graph: dict | None = None  # v2.5 重连快照用：补当前时刻的图
         self.last_swimlane: dict | None = None  # v2.7 重连快照用：补当前时刻的复盘泳道总结
         self.closed = False
 
@@ -28,8 +27,6 @@ class EventBus:
             event = {**event, "id": self.allocate_id()}
             if kind == "phase_start":
                 self.last_phase_start = event["data"]
-            elif kind == "graph":
-                self.last_graph = event["data"]
             elif kind == "swimlane":
                 self.last_swimlane = event["data"]
         for queue in list(self._subscribers):

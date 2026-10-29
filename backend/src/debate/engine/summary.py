@@ -1,7 +1,7 @@
 """复盘泳道总结（v2.7）：按「阶段 × 泳道（正方 / 反方 / 公共场域）」汇总一场辩论。
 
-数据全部来自实录与图状态推导，不引入额外 LLM 调用：
-  - 复用 :class:`GraphTracker` 的论点分类与攻防连线——「指向 / 被指向」与论证关系图完全一致；
+数据全部来自实录推导，不引入额外 LLM 调用：
+  - 论点分类与攻防连线由内置 :class:`PointingIndex` 完成（启发式，与全场一致）；
   - 公共场域：接收方/计时提示按环节语义生成，违规打断、质检谬误、发言降级、主持/评审进特殊标注。
 
 两条输出通道共用本模块的纯函数：
@@ -11,10 +11,11 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 
+from .agents.loader import ROLE_DEFS
 from .schema import Camp, Speech
-from .graph.debate_state import QUESTION_PHASES, GraphTracker, speaker_cn
 
 #: 内容摘录长度（首句优先，超长截断）
 _CONTENT_MAX = 48
@@ -35,6 +36,144 @@ _RECEIVERS = {
     9: "全场", 10: "全场", 11: "全场",
 }
 _TIMER = {7: "逐轮独立计时"}
+
+# ---- 关系判定词表（启发式，宁可粗不可缺：指向关系要"连得出"，不追求语义完美） ----
+
+ATTACK_HINTS = (
+    "不成立", "站不住", "然而", "但是", "恰恰相反", "相反", "忽略了", "忽视",
+    "误判", "错误", "漏洞", "反驳", "并不", "难以", "无法", "以偏概全", "偷换",
+    "滑坡", "倒果为因", "循环论证", "诉诸", "混淆", "质疑", "反而",
+)
+SUPPORT_HINTS = (
+    "支持", "印证", "正如", "同意", "补充", "进一步", "同样", "一致",
+    "佐证", "呼应", "延伸", "深化",
+)
+QUESTION_HINTS = ("？", "?", "请问", "是否", "为什么", "如何", "难道")
+
+#: 质询 / 攻辩环节：发言天然是"问"，关系边按 query 处理
+QUESTION_PHASES = (3, 5)
+
+
+def speaker_cn(role_id: str) -> str:
+    """role_id → 中文位次（pro-1 → 正方一辩）；未知角色原样返回。"""
+    spec = ROLE_DEFS.get(role_id)
+    if spec is None:
+        return role_id
+    return spec.position_cn.split(" · ")[0]
+
+
+def _hits(text: str, words: tuple[str, ...]) -> str | None:
+    for w in words:
+        if w in text:
+            return w
+    return None
+
+
+@dataclass
+class _Node:
+    """指向索引里的一个论点节点。"""
+
+    id: str
+    kind: str  # claim | rebuttal | question | support | neutral
+    camp: str  # pro | con | neutral
+    speaker: str
+    seq: int
+    phase: int
+
+
+@dataclass
+class _Edge:
+    """论点之间的关系：attack 反驳 / query 质询 / support 支持 / flow 时序。"""
+
+    id: str
+    src: str
+    dst: str
+    kind: str
+    label: str
+
+
+class PointingIndex:
+    """把全场实录折算成「论点节点 + 攻防指向边」的轻量索引。
+
+    只服务复盘总结：不需要快照/版本/mermaid，feed 一遍之后查 nodes/edges 即可。
+    """
+
+    def __init__(self) -> None:
+        self.nodes: list[_Node] = []
+        self.edges: list[_Edge] = []
+        self._seq = 0
+        self._last_node_by_camp: dict[str, str] = {}
+
+    def _nid(self) -> str:
+        self._seq += 1
+        return f"n{self._seq}"
+
+    # ---------- 内部：关系判定 ----------
+
+    def _classify(self, speech: Speech, prev_own: str | None) -> str:
+        """返回节点类型。主席/评委是中立角色；质询环节的发言一律算 question。"""
+        text = speech.text
+        if speech.camp is Camp.NEUTRAL:
+            return "neutral"
+        if speech.phase in QUESTION_PHASES or (
+            _hits(text, QUESTION_HINTS) and len(text) < 120
+        ):
+            return "question"
+        attack = _hits(text, ATTACK_HINTS)
+        support = _hits(text, SUPPORT_HINTS)
+        # 立论环节的第一条发言是"主张"而非"补充"——先有论点，才谈得上支持谁
+        if speech.phase == 2 and attack is None:
+            return "claim"
+        if support and attack is None and prev_own:
+            return "support"
+        if attack:
+            return "rebuttal"
+        if speech.phase in (2, 8) or prev_own is None:
+            return "claim"
+        return "rebuttal"
+
+    def _connect(self, node: _Node, speech: Speech,
+                 prev_own: str | None, prev_opp: str | None,
+                 prev_any: str | None) -> list[_Edge]:
+        """按发言对象挑目标节点：优先对方上一条论点，其次本方上一条论点。
+
+        目标必须取自"本条之前"的节点——先登记本条再连线会让首条发言自己指向自己。
+        中立发言没有攻防对象，按时间顺序接到上一条（flow 边）。
+        边标签统一带来源发言人（如「反方二辩 反驳」），明确"谁指向谁"。
+        """
+        speaker = speaker_cn(speech.speaker)
+        if speech.camp is Camp.NEUTRAL:
+            if prev_any:
+                return [_Edge(f"e{len(self.edges) + 1}", node.id, prev_any, "flow", speaker)]
+            return []
+        if node.kind == "question":
+            target = prev_opp or prev_own
+        elif node.kind == "support":
+            target = prev_own or prev_opp
+        else:
+            target = prev_opp or prev_own
+        if not target:
+            return []
+        kind = {"question": "query", "support": "support"}.get(node.kind, "attack")
+        base = {"query": "质询", "support": "支持"}.get(kind, "反驳")
+        return [_Edge(f"e{len(self.edges) + 1}", node.id, target, kind, f"{speaker} {base}")]
+
+    # ---------- 对外：吸收一条发言 ----------
+
+    def feed_speech(self, speech: Speech) -> None:
+        camp = speech.camp.value
+        prev_own = self._last_node_by_camp.get(camp)
+        opp_camp = (Camp.CON if speech.camp is Camp.PRO else Camp.PRO).value
+        prev_opp = self._last_node_by_camp.get(opp_camp)
+        prev_any = self.nodes[-1].id if self.nodes else None
+        kind = self._classify(speech, prev_own)
+        node = _Node(
+            id=self._nid(), kind=kind, camp=camp, speaker=speech.speaker,
+            seq=speech.seq, phase=speech.phase,
+        )
+        self.nodes.append(node)
+        self._last_node_by_camp[camp] = node.id
+        self.edges.extend(self._connect(node, speech, prev_own, prev_opp, prev_any))
 
 
 def _clip(text: str, limit: int = _CONTENT_MAX) -> str:
@@ -85,21 +224,20 @@ def _normalize(speeches: list) -> list:
 def build_swimlane(speeches: list[Speech], *, topic: str = "") -> dict:
     """把全场实录折算成泳道总结：rows[phase] = {pro, con, public}。
 
-    攻防指向来自 GraphTracker 的连线（与论证关系图同源），
-    因此「谁指向谁」在总结表和动态图里永远一致。
+    攻防指向来自 :class:`PointingIndex` 的连线，因此「谁指向谁」全场口径一致。
     """
-    tracker = GraphTracker(topic=topic)
-    for speech in _normalize(speeches):
-        tracker.feed_speech(speech)
     speech_list = _normalize(speeches)
-    nodes = tracker.state.nodes
+    index = PointingIndex()
+    for speech in speech_list:
+        index.feed_speech(speech)
+    nodes = index.nodes
     node_by_id = {n.id: n for n in nodes}
     node_by_seq = {n.seq: n for n in nodes}
     phase_names = {s.phase: s.phase_name for s in speech_list}
 
     out_edges: dict[str, list] = {}
     in_edges: dict[str, list] = {}
-    for edge in tracker.state.edges:
+    for edge in index.edges:
         out_edges.setdefault(edge.src, []).append(edge)
         in_edges.setdefault(edge.dst, []).append(edge)
 
@@ -123,7 +261,7 @@ def build_swimlane(speeches: list[Speech], *, topic: str = "") -> dict:
         con: list[dict] = []
         notes: list[str] = []
         # 早前环节的立论在本环节被攻击 → 在受害者的阵营一格补「被指向」条目
-        victims: list[tuple[Camp, dict]] = []
+        victims: list[tuple[str, dict]] = []
         # 质询/攻辩/自由辩论：按阵营合并成「轮换」条目，突出交锋节奏
         grouped_phase = phase in QUESTION_PHASES or phase == 7
 
@@ -170,7 +308,6 @@ def build_swimlane(speeches: list[Speech], *, topic: str = "") -> dict:
                 (pro if speech.camp is Camp.PRO else con).append(entry)
 
             # 本条发言攻击了早前环节的论点 → 给受害者的阵营记一条「被指向」
-            # （GraphNode.camp 存的是 camp 字符串值，比较用 .value）
             if node is not None and speech.camp is not Camp.NEUTRAL:
                 for edge in out_edges.get(node.id, []):
                     if edge.kind not in ("attack", "query"):

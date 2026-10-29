@@ -6,16 +6,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 
 from .llm.gateway import Gateway
 from .rag.corpus import EvidenceCard
 from .schema import Camp, DebateFormat, Speech, Topic
 from .agents.loader import AgentSpec
 from ..core.config import AppConfig
-
-if TYPE_CHECKING:  # 仅类型标注：graph 包会反向依赖 schema/agents，避免运行时循环导入
-    from .graph.debate_state import GraphTracker
 
 
 class DebateCancelled(Exception):
@@ -44,7 +41,6 @@ class DebateContext:
     degradation_streak: int = 0
     evidence_usage: dict[str, int] = field(default_factory=dict)  # 书名→全场被引用次数（v1.5 引用纪律）
     speeches: list[Speech] = field(default_factory=list)  # 全场镜像（取消/中断时仍可用）
-    graph: "GraphTracker | None" = None  # v2.5 动态图状态机（CLI/测试可不挂）
 
     def cancelled(self) -> bool:
         return bool(self.cancel_check and self.cancel_check())
@@ -54,36 +50,13 @@ class DebateContext:
             raise DebateCancelled()
 
     def emit(self, event: str, **data) -> None:
-        """平台事件出口（ARCH §5.3）：phase_start/timer/interrupt/judging/verdict 等。
-
-        v2.5：环节边界与宣判同时是图状态的转折点——先让追踪器吸收这次状态变更并抛出
-        graph 事件，再抛原事件，前端因此永远先看到「图变了」再看到「环节变了」。
-        """
-        if self.graph is not None and self.on_event is not None:
-            snap = None
-            if event == "phase_start":
-                snap = self.graph.feed_phase_start(
-                    data.get("phase", 0), data.get("name", ""), data.get("actors"),
-                )
-            elif event == "phase_end":
-                snap = self.graph.feed_phase_end(data.get("phase", 0))
-            elif event == "verdict":
-                snap = self.graph.feed_verdict(
-                    winner=data.get("winner"), rule=data.get("decisive_rule", ""),
-                )
-            if snap is not None:
-                self.on_event({"event": "graph", "data": snap})
+        """平台事件出口（ARCH §5.3）：phase_start/timer/interrupt/judging/verdict 等。"""
         if self.on_event:
             self.on_event({"event": event, "data": data})
 
     def track_speech(self, speech: Speech) -> None:
-        """吸收一条发言到图状态，并推送新的 mermaid 图（每条发言一次，图随辩随新）。"""
-        if self.graph is None:
-            return
-        snap = self.graph.feed_speech(speech)
+        """每条发言落定后推送最新一份复盘泳道总结（swimlane SSE 事件）。"""
         if self.on_event:
-            self.on_event({"event": "graph", "data": snap})
-            # v2.7 复盘泳道总结：与图同源（指向/被指向完全一致），每条发言后推最新一份
             from .summary import build_swimlane
 
             self.on_event({"event": "swimlane", "data": build_swimlane(self.speeches, topic=self.topic.title)})

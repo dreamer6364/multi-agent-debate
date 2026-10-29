@@ -1,9 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { GraphSnapshot, LiveSpeech, ScorecardSummary, SwimlanePayload } from "../api/types";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it } from "vitest";
+import type { LiveSpeech, ScorecardSummary, SwimlanePayload } from "../api/types";
 import { useDebateStore } from "../stores/debateStore";
-import { DebateGraphPanel } from "./DebateGraphPanel";
-import { MermaidCanvas } from "./MermaidCanvas";
 import { FrameworkPanel } from "./FrameworkPanel";
 import { JudgeReasonCards } from "./JudgeReasonCards";
 import { PhaseTimeline } from "./PhaseTimeline";
@@ -265,121 +263,6 @@ describe("RichText", () => {
   it("流式半截文本（加粗未闭合）也不会把星号漏到屏幕上", () => {
     const { container } = render(<RichText text={"**定义与判"} />);
     expect(container.textContent).toBe("定义与判");
-  });
-});
-
-vi.mock("mermaid", () => {
-  const render = async (_id: string, code: string) => ({
-    svg: `<svg xmlns="http://www.w3.org/2000/svg"><text>${
-      code.startsWith("flowchart TD") ? "控制图" : "论证图"
-    }</text></svg>`,
-  });
-  return { default: { initialize: () => undefined, render }, initialize: () => undefined, render };
-});
-
-const snap = (version: number, round: number, over: Partial<GraphSnapshot> = {}): GraphSnapshot => ({
-  version,
-  round,
-  state: {
-    topic: "人工智能时代，人类应该更依赖技术",
-    round,
-    pro_agent: "pro-1",
-    con_agent: "con-1",
-    moderator: "chair",
-    current_claim: `第 ${round} 轮的主张`,
-    phase: 2,
-    phase_name: "开篇立论",
-    converged: false,
-    terminated: false,
-    branch: "next_round",
-    winner: null,
-    node_count: round * 2,
-    edge_count: round,
-  },
-  views: {
-    argument: "flowchart LR\n  T([\"辩题\"]):::topic",
-  },
-  active_node: `n${version}`,
-  added_nodes: [`n${version}`],
-  added_edges: [`e${version}`],
-  added_edge_kinds: ["attack"],
-  converged: false,
-  terminated: false,
-  branch: "next_round",
-  ...over,
-});
-
-describe("DebateGraphPanel（v2.5 动态辩论图）", () => {
-  it("FE-CMP-10 无图时给出空态，不渲染画布", () => {
-    const { container } = render(<DebateGraphPanel graph={null} history={[]} status="pending" />);
-    expect(container.querySelector("[data-testid='debate-graph-empty']")).toBeTruthy();
-    expect(container.querySelector("[data-testid='dg-canvas']")).toBeNull();
-    cleanup();
-  });
-
-  it("FE-CMP-11 状态条展示轮次/双方 Agent/裁判/分支，并标注本轮变更", () => {
-    const { container } = render(
-      <DebateGraphPanel graph={snap(3, 2)} history={[snap(1, 1), snap(2, 1), snap(3, 2)]} status="running" />,
-    );
-    const stateText = container.querySelector("[data-testid='dg-state']")?.textContent ?? "";
-    expect(stateText).toContain("2");           // 回合号
-    expect(stateText).toContain("正方一辩");     // 正方 Agent
-    expect(stateText).toContain("反方一辩");     // 反方 Agent
-    expect(stateText).toContain("裁判 主席");    // Moderator
-    expect(stateText).toContain("当前论点");
-    expect(stateText).toContain("继续下一轮");   // 跳转分支
-    const delta = container.querySelector("[data-testid='dg-delta']")?.textContent ?? "";
-    expect(delta).toContain("+1 节点");
-    expect(delta).toContain("+1 攻击边");
-    cleanup();
-  });
-
-  it("FE-CMP-12 单一论证图视图，历史可回看上一版再回到最新", () => {
-    const history = [snap(1, 1), snap(2, 1), snap(3, 2)];
-    const { container } = render(<DebateGraphPanel graph={snap(3, 2)} history={history} status="running" />);
-    // v2.6.2：工作流控制图已删除，只保留论证关系图（不再有视图 Tab）
-    expect(container.querySelectorAll("[role='tab']").length).toBe(0);
-    expect(container.textContent).toContain("论证关系图");
-
-    expect(container.querySelector("[data-testid='dg-history']")?.textContent).toContain("第 3/3 版");
-    fireEvent.click(screen.getByText("◀ 上一版"));
-    expect(container.querySelector("[data-testid='dg-history']")?.textContent).toContain("第 2/3 版");
-    expect(container.querySelector("[data-testid='dg-back-live']")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("dg-back-live"));
-    expect(container.querySelector("[data-testid='dg-history']")?.textContent).toContain("第 3/3 版");
-    cleanup();
-  });
-
-  it("FE-CMP-13 终态收敛/终止以标签呈现", () => {
-    const done = snap(4, 3, {
-      converged: true, terminated: true, branch: "terminate",
-      state: {
-        ...snap(4, 3).state, converged: true, terminated: true,
-        branch: "terminate", winner: "pro",
-      },
-    });
-    const { container } = render(<DebateGraphPanel graph={done} history={[done]} status="finished" />);
-    const text = container.querySelector("[data-testid='dg-state']")?.textContent ?? "";
-    expect(text).toContain("已收敛");
-    expect(text).toContain("已终止");
-    expect(text).toContain("终止");
-    cleanup();
-  });
-});
-
-describe("MermaidCanvas", () => {
-  it("FE-CMP-14 空源码显示空态；有源码时渲染 SVG 并支持缩放", async () => {
-    const empty = render(<MermaidCanvas code="" />);
-    expect(empty.container.querySelector("[data-testid='mermaid-canvas-empty']")).toBeTruthy();
-    cleanup();
-
-    render(<MermaidCanvas code={"flowchart LR\n  T([\"辩题\"])\n  T --> n1"} version="1" />);
-    await waitFor(() => expect(screen.getByText("论证图")).toBeTruthy());
-    fireEvent.click(screen.getByTitle("放大"));
-    expect(screen.getByText(/缩放 118%/)).toBeTruthy();
-    fireEvent.click(screen.getByTitle("复位"));
-    expect(screen.getByText(/缩放 100%/)).toBeTruthy();
-    cleanup();
   });
 });
 

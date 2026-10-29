@@ -742,86 +742,11 @@ a.neu-btn-accent.hero-btn { color: #fff; }
   background: var(--neu-bg); border-radius: 16px; padding: 10px;
   box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light);
 }
-.mg-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12.5px; color: var(--ink-2); }
-.mg-toolbar button {
-  border: 0; cursor: pointer; font: inherit; font-size: 12px; color: var(--ink-2);
-  background: var(--neu-bg); border-radius: 9px; padding: 4px 10px;
-  box-shadow: 2px 2px 4px var(--neu-dark), -2px -2px 4px var(--neu-light);
-}
-.mg-toolbar button:active { box-shadow: inset 2px 2px 4px var(--neu-dark), inset -2px -2px 4px var(--neu-light); }
-.mg-meta { margin-right: auto; color: var(--ink-3); }
-.mg-err { color: var(--con-deep); }
-.mg-stage {
-  position: relative; overflow: auto; border-radius: 12px; background: var(--neu-bg-light);
-  cursor: grab; touch-action: none;
-  box-shadow: inset 2px 2px 5px var(--neu-dark), inset -2px -2px 5px var(--neu-light);
-}
-.mg-stage:active { cursor: grabbing; }
-.mg-inner { width: max-content; margin: 0 auto; padding: 10px; transform-origin: 0 0; }
-.mg-inner svg { max-width: none !important; height: auto; display: block; }
-.mg-in { animation: mg-fade 0.34s ease; }
 @keyframes mg-fade { from { opacity: 0.15; } to { opacity: 1; } }
-.mg-source {
-  margin: 0; padding: 12px; height: 100%; overflow: auto;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11.5px;
-  color: var(--ink-2); white-space: pre-wrap; word-break: break-all;
-}
-.mg-empty {
-  display: grid; place-items: center; color: var(--ink-3); font-size: 13px;
-  border-radius: 14px; background: var(--neu-bg);
-  box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light);
-}
 
-.dg-empty { padding: 40px 20px; text-align: center; }
-.dg-empty-title { font-size: 15px; font-weight: 700; color: var(--ink); margin: 0 0 8px; }
-.dg-empty-sub { font-size: 12.5px; color: var(--ink-3); margin: 0; line-height: 1.8; }
 
-.dg-status {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-  padding: 9px 14px; border-radius: 12px; background: var(--neu-bg);
-  box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light);
-  font-size: 12.5px; color: var(--ink-2);
-}
-.dg-round b { color: var(--accent-deep); font-size: 14px; }
-.dg-chip { padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
-.dg-chip.pro { background: #eef0fa; color: var(--accent-deep); }
-.dg-chip.con { background: #fdeeee; color: var(--con-deep); }
-.dg-chip.neutral { background: #f7f2e3; color: var(--judge-deep); }
-.dg-claim {
-  max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--ink-2);
-}
-.dg-branch { padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; background: #eaf3ec; color: #3f7d55; }
-.dg-branch.early_finish, .dg-branch.terminate { background: #fdeaea; color: var(--con-deep); }
-.dg-branch.extra_query { background: #f7f2e3; color: var(--judge-deep); }
 
-.dg-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 8px; }
-.dg-view {
-  border: 0; cursor: default; font: inherit; font-size: 12.5px; color: var(--ink-2);
-  background: var(--neu-bg); border-radius: 10px; padding: 6px 14px;
-  box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light);
-}
-.dg-view.on {
-  color: var(--accent-deep); font-weight: 700;
-}
-.dg-delta { display: flex; gap: 8px; font-size: 12px; font-weight: 700; }
-.dg-new { color: #a8791c; }
-.dg-atk { color: var(--con-deep); }
-.dg-sup { color: var(--accent-deep); }
-.dg-qry { color: #3f7d55; }
-.dg-nochange { color: var(--ink-3); font-weight: 400; }
 
-.dg-history { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; font-size: 12.5px; color: var(--ink-2); }
-.dg-history input[type="range"] { flex: 1; min-width: 140px; accent-color: var(--accent); }
-.dg-nav, .dg-live {
-  border: 0; cursor: pointer; font: inherit; font-size: 12px; color: var(--ink-2);
-  background: var(--neu-bg); border-radius: 9px; padding: 5px 12px;
-  box-shadow: 2px 2px 4px var(--neu-dark), -2px -2px 4px var(--neu-light);
-}
-.dg-nav:disabled { opacity: 0.4; cursor: not-allowed; }
-.dg-live { color: var(--accent-deep); font-weight: 700; }
-.dg-ver { color: var(--ink-3); white-space: nowrap; }
-.dg-note { font-size: 12px; color: var(--ink-3); margin: 10px 2px 0; line-height: 1.7; }
 
 /* ---- v2.7 复盘泳道总结（SwimlaneSummary）---- */
 .sl-empty {
