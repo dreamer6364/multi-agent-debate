@@ -74,6 +74,26 @@ def run_debate(
         compressor=compressor, format=fmt, evidence=evidence, on_speech=on_speech, on_event=on_event, on_delta=on_delta,
         cancel_check=cancel_check, retriever=retriever, web_provider=web_provider,
     )
+    # v2.8.1 流式质检：开赛即挂 QC，每条辩手发言落定（track_speech）就分析，
+    # 标注实时推 fallacy SSE；评审阶段只收割现成结果。任何失败静默降级。
+    qc_stream = None
+    elenchus_cfg = getattr(config.tools, "elenchus", None)
+    if (elenchus_cfg is not None and bool(getattr(elenchus_cfg, "enabled", False))
+            and bool(getattr(elenchus_cfg, "stream", True))
+            and getattr(elenchus_cfg, "mode", "inproc") == "inproc"):
+        try:
+            from .tools.qc_stream import StreamingQC
+
+            qc_stream = StreamingQC(
+                check=getattr(elenchus_cfg, "check", "fallacy"),
+                sensitivity=getattr(elenchus_cfg, "sensitivity", "strict"),
+                timeout=float(getattr(elenchus_cfg, "timeout_seconds", 45.0)),
+                parallel=int(getattr(elenchus_cfg, "parallel", 4)),
+                on_marks=lambda marks: ctx.emit("fallacy", marks=marks),
+            )
+            ctx.qc = qc_stream
+        except Exception:  # noqa: BLE001 —— 流式质检失败回落评审阶段批量模式
+            qc_stream = None
     graph = build_graph(ctx, fmt)
     try:
         final = graph.invoke(initial_state())
@@ -93,3 +113,6 @@ def run_debate(
         return DebateResult(
             status="failed", transcript=list(ctx.speeches), error=str(exc), usage=dict(gateway.usage),
         )
+    finally:
+        if qc_stream is not None:
+            qc_stream.close()

@@ -109,9 +109,11 @@ export default function ArenaPage() {
       {judgingProgress
         ? `${judgingProgress.stage === "评审"
           ? `评委评审中（${judgingProgress.completed}/${judgingProgress.total} 位已出评分）`
-          : judgingProgress.stage === "质检"
-            ? "机器论证质检中"
-            : judgingProgress.stage} · 已用时 ${Math.round(judgingProgress.elapsed)}s`
+          : judgingProgress.stage === "质检（随赛并行）"
+            ? "机器论证质检（随辩论逐条进行，评审阶段直接收割结果）"
+            : judgingProgress.stage === "质检"
+              ? "机器论证质检中"
+              : judgingProgress.stage} · 已用时 ${Math.round(judgingProgress.elapsed)}s`
         : "评委合议与点评中……"}
     </div>
   ) : null;

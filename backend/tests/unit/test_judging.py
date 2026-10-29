@@ -344,3 +344,51 @@ def test_abstain_cards_get_rescued_commentary(monkeypatch):
         assert card.highlights.get(Camp.CON) and "“" in card.highlights[Camp.CON][0]
     # 不足栏：来自机器质检的真实谬误标注
     assert any("稻草人" in w for c in result["scorecards"] for w in c.weaknesses.get(Camp.PRO, []))
+
+
+# ---- v2.8.1 流式质检：辩论期间已逐条分析，评审节点只收割现成结果 ----
+
+def test_judging_harvests_streaming_qc(monkeypatch):
+    """ctx.qc 存在时：评审不走批量分析（analyze_speeches_detailed 不许被调），
+    join 等待从流式 QC harvest 拿标注注入逻辑评委，并保证 machine_marks 落入 state。"""
+    from debate.engine.nodes import judges as judges_module
+    from debate.engine.tools import elenchus as elenchus_module
+
+    batch_calls: list[int] = []
+
+    def no_batch(*a, **kw):
+        batch_calls.append(1)
+        return "", []
+
+    monkeypatch.setattr(elenchus_module, "analyze_speeches_detailed", no_batch)
+
+    harvested: list[float] = []
+
+    class FakeStreamQC:
+        marks = [{"seq": 1, "camp": "pro", "speaker": "pro-1", "name": "以偏概全",
+                  "quote": "x", "explanation": "y", "confidence": "中"}]
+
+        def harvest(self, wait: float = 0.0):
+            harvested.append(wait)
+            return "【机器论证分析】\n- [正方·pro-1] 以偏概全（中）：引用“x”", list(self.marks)
+
+        def close(self) -> None:
+            pass
+
+    backend = _SlowBackend(delay=0.05, votes=["pro", "con", "pro"])
+    ctx, events = _ctx_with_events(backend)
+    ctx.qc = FakeStreamQC()
+    ctx.config.tools.elenchus = SimpleNamespace(
+        enabled=True, per_camp=1, check="fallacy", timeout_seconds=5.0,
+        mode="inproc", total_budget_seconds=5.0, stream=True,
+    )
+    node = make_judging_node(ctx)
+    final = node({"transcript": [], "digest": Digest(), "scorecards": None})
+
+    assert batch_calls == []                      # 批量质检没有起跑
+    assert harvested and harvested[0] > 0         # join 等待传给了 harvest
+    assert final["machine_marks"]                 # 标注进入 state（落库/SSE）
+    logic_events = [e for e in events if e["event"] == "fallacy"]
+    assert logic_events                           # fallacy 事件照常下发
+    progress = [e for e in events if e["event"] == "judging_progress"]
+    assert any("随赛并行" in p["stage"] for p in progress)  # 进度条显示流式质检

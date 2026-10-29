@@ -173,6 +173,7 @@ def make_judging_node(ctx: DebateContext):
         machine_marks: list[dict] = []
         elenchus_cfg = ctx.config.tools.elenchus
         qc_enabled = bool(getattr(elenchus_cfg, "enabled", False)) and "judge-logic" in judge_ids
+        qc_stream = getattr(ctx, "qc", None)  # v2.8.1 流式质检：辩论期间已逐条分析
         qc_budget = float(getattr(elenchus_cfg, "total_budget_seconds", 90.0))
         QC_JOIN_WAIT = min(  # v2.6 改为可配置：质检是进程内分析，通常秒级完成，20s 白等 rarely 值得
             qc_budget, float(getattr(ctx.config.judges, "qc_join_wait_seconds", 10.0)))
@@ -183,6 +184,15 @@ def make_judging_node(ctx: DebateContext):
         qc_started = time.monotonic()
 
         def qc_worker() -> None:
+            if qc_stream is not None:
+                # 流式模式：辩论期间已逐条分析，这里只收割现成结果（join 等待在 harvest 内部，
+                # _run_bounded 再兜一层底：即使 harvest 挂死也不拖评委）
+                ok, outcome = _run_bounded(
+                    lambda: qc_stream.harvest(QC_JOIN_WAIT),
+                    QC_JOIN_WAIT + ELENCHUS_GUARD_MARGIN,
+                )
+                qc_holder["ok"], qc_holder["outcome"] = ok, outcome
+                return
             try:
                 ok, outcome = _run_bounded(
                     lambda: elenchus_tool.analyze_speeches_detailed(
@@ -210,6 +220,24 @@ def make_judging_node(ctx: DebateContext):
             nonlocal machine_analysis, machine_marks, qc_harvested
             if not qc_enabled or qc_harvested:
                 return
+            if qc_stream is not None:
+                # 流式模式：harvest 自带有界等待；已随辩论逐条推过 fallacy 事件，
+                # 这里只取累计结果注入评委（前端 mergeMarks 对重复标注天然去重）
+                qc_harvested = True
+                try:
+                    ok, outcome = _run_bounded(
+                        lambda: qc_stream.harvest(max(0.0, wait)),
+                        max(0.0, wait) + ELENCHUS_GUARD_MARGIN,
+                    )
+                except Exception:  # noqa: BLE001
+                    return
+                if ok and outcome and outcome[1]:
+                    machine_analysis, machine_marks = outcome[0], list(outcome[1])
+                    try:
+                        ctx.emit("fallacy", marks=machine_marks)
+                    except Exception:  # noqa: BLE001 —— 播报失败不影响评审
+                        pass
+                return
             if not qc_done.wait(timeout=max(0.0, wait)):
                 return  # 质检仍在跑：放弃等待，绝不拖住评审
             qc_harvested = True
@@ -222,7 +250,11 @@ def make_judging_node(ctx: DebateContext):
                         pass
 
         if qc_enabled:
-            emit_progress(stage="质检")
+            if qc_stream is not None:
+                # 流式模式：进度条直接显示"随赛质检"的完成度（如 12 条发言已分析完 10 条）
+                emit_progress(stage="质检（随赛并行）")
+            else:
+                emit_progress(stage="质检")
             threading.Thread(target=qc_worker, name="elenchus-qc", daemon=True).start()
 
         judge_timeout = float(getattr(ctx.config.judges, "timeout_seconds", 240.0))

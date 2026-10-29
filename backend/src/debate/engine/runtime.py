@@ -41,6 +41,7 @@ class DebateContext:
     degradation_streak: int = 0
     evidence_usage: dict[str, int] = field(default_factory=dict)  # 书名→全场被引用次数（v1.5 引用纪律）
     speeches: list[Speech] = field(default_factory=list)  # 全场镜像（取消/中断时仍可用）
+    qc: Any | None = None  # v2.8.1 流式质检（StreamingQC）：每条发言落定即分析；CLI/测试可不挂
 
     def cancelled(self) -> bool:
         return bool(self.cancel_check and self.cancel_check())
@@ -55,7 +56,12 @@ class DebateContext:
             self.on_event({"event": event, "data": data})
 
     def track_speech(self, speech: Speech) -> None:
-        """每条发言落定后推送最新一份复盘泳道总结（swimlane SSE 事件）。"""
+        """每条发言落定后：流式质检入队（边辩边检）+ 推送最新一份复盘泳道总结。"""
+        if self.qc is not None:
+            try:
+                self.qc.submit(speech)
+            except Exception:  # noqa: BLE001 —— 质检任何失败不拖辩论
+                pass
         if self.on_event:
             from .summary import build_swimlane
 

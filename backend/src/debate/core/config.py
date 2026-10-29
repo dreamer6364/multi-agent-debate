@@ -105,7 +105,10 @@ class ElenchusConfig(BaseModel):
     # v2.6 严格度档位（透传 elenchus）：lenient 只报高置信 / balanced（库默认）/
     # strict 连低置信的细微问题也报并标 low confidence（最多 7 条）。
     sensitivity: str = "strict"
-    per_camp: int = 2         # 每方分析的核心论点数
+    # v2.8.1 流式质检：每条辩手发言落定即分析（边辩边检），评审阶段只收割现成结果；
+    # 关闭则回落「评审阶段批量分析」的旧行为。仅 inproc 模式生效。
+    stream: bool = True
+    per_camp: int = 2         # 每方分析的核心论点数（批量模式/流式关闭时生效）
     timeout_seconds: float = 45.0
     total_budget_seconds: float = 90.0  # 质检总预算：耗尽即停，绝不拖住评委阶段
     parallel: int = 4         # v2.6：多条核心论点并行分析度（1 = 顺序；mcp 模式强制顺序）。

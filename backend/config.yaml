@@ -62,7 +62,8 @@ tools:
     mode: inproc             # inproc（稳定）| mcp（stdio JSON-RPC，真 MCP 协议路径）
     check: fallacy           # fallacy / rhetoric / bias / scam / all
     sensitivity: strict      # v2.6 严格度：lenient / balanced / strict（strict 连细微低置信问题也报，单条最多 7 条）
-    per_camp: 2              # 每方分析的核心论点数
+    stream: true             # v2.8.1 流式质检：边辩边检（每条辩手发言落定即分析，标注实时上屏）；false = 评审阶段批量分析
+    per_camp: 2              # 每方分析的核心论点数（批量模式/流式关闭时生效；流式覆盖全部辩手发言）
     timeout_seconds: 45.0    # 单条分析超时
     total_budget_seconds: 90.0  # 质检总预算（耗尽即停，防止拖住评委阶段）
     parallel: 4              # v2.6 多条核心论点并行分析度（1 = 顺序；mcp 模式强制顺序）；
