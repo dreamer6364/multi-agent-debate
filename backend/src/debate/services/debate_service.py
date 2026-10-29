@@ -376,6 +376,11 @@ class DebateService:
                     weaknesses_json={k.value: v for k, v in card.weaknesses.items()},
                     abstained=card.abstained,
                 ))
+            # v2.9 金句摘录随终态落库（cfg_json 挂载，历史场次无此键自然为空）
+            if result.golden_quotes:
+                cfg = dict(debate.cfg_json or {})
+                cfg["golden_quotes"] = list(result.golden_quotes)
+                debate.cfg_json = cfg
             session.add(debate)
             await session.commit()
 

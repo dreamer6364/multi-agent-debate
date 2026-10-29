@@ -15,6 +15,7 @@ class EventBus:
         self._non_speech_id = 0
         self.last_phase_start: dict | None = None  # 重连快照用（SPEC §6.1）
         self.last_swimlane: dict | None = None  # v2.7 重连快照用：补当前时刻的复盘泳道总结
+        self.golden_quotes: list[dict] = []  # v2.9 重连快照用：累计金句（增量事件 → 重连全量补发）
         self.closed = False
 
     def allocate_id(self) -> int:
@@ -29,6 +30,8 @@ class EventBus:
                 self.last_phase_start = event["data"]
             elif kind == "swimlane":
                 self.last_swimlane = event["data"]
+            elif kind == "golden_quote":
+                self.golden_quotes.extend(event["data"].get("quotes", []))
         for queue in list(self._subscribers):
             queue.put_nowait(event)
 

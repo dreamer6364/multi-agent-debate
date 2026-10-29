@@ -121,6 +121,8 @@ export interface DebateDetail {
   created_at: string;
   /** v2.7 复盘泳道总结（详情接口按落库实录现算；直播中由 SSE swimlane 事件更新） */
   swimlane?: SwimlanePayload | null;
+  /** v2.9 金句摘录（终态随 cfg_json 落库；直播中由 SSE golden_quote 事件更新） */
+  golden_quotes?: GoldenQuote[];
 }
 
 export interface TopicItem {
@@ -176,5 +178,16 @@ export interface SwimlaneRow {
 export interface SwimlanePayload {
   topic: string;
   rows: SwimlaneRow[];
+}
+
+/** v2.9 金句摘录（随辩论并行提取，SSE golden_quote 实时推送 + 终态落库） */
+export interface GoldenQuote {
+  seq: number;
+  camp: "pro" | "con";
+  speaker: string;
+  phase_name: string;
+  quote: string;
+  comment: string;
+  kind: string;
 }
 

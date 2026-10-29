@@ -74,6 +74,13 @@ tools:
     tool_timeout_seconds: 15.0
     phases: [statement, rebuttal, attack_summary, closing]  # 启用环节（自由辩/质询为短打高频环节，默认不开）
                                                              # 动态证据检索（不走工具循环）仍对全部环节生效
+  golden:                    # v2.9 流式金句摘录：边辩边摘有价值的句子，实时上屏（失败静默降级）
+    enabled: true
+    timeout_seconds: 30.0    # 单条摘录超时
+    parallel: 2              # 并行摘录度
+    max_per_speech: 2        # 单条发言最多摘录条数
+    max_total: 16            # 全场金句总数封顶（宁缺毋滥）
+    min_len: 60              # 参与摘录的最短发言字数
 
 web_search:
   enabled: true             # 联网搜索增强（v1.4.1）：开赛检索网络资料并入证据参考

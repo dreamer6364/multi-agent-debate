@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { getDebate, getSpeeches } from "../api/client";
 import type {
-  DebateStatus, FallacyMark, LiveSpeech, PhaseStartEvent,
+  DebateStatus, FallacyMark, GoldenQuote, LiveSpeech, PhaseStartEvent,
   SpeechDeltaEvent, SwimlanePayload, TimerEvent, Verdict,
 } from "../api/types";
 import { useDebateStore, type JudgingProgress } from "../stores/debateStore";
@@ -91,6 +91,10 @@ export function useDebateStream(debateId: number | string | undefined): void {
               const page = await getSpeeches(debateId, 0);
               page.items.forEach((s) => useDebateStore.getState().applySpeech(s));
               useDebateStore.getState().ingestFallacies(page.items);
+              // v2.9 终态兜底：订阅空窗期错过的金句随详情接口落库数据补齐
+              if (detail.golden_quotes?.length) {
+                useDebateStore.getState().applyGoldenQuotes(detail.golden_quotes);
+              }
               stopAll();
             }
           } catch {
@@ -110,6 +114,10 @@ export function useDebateStream(debateId: number | string | undefined): void {
         page.items.forEach((s) => useDebateStore.getState().applySpeech(s));
         // v2.7 归档/刷新场景：详情接口自带按落库实录现算的泳道总结
         if (detail.swimlane) useDebateStore.getState().applySwimlane(detail.swimlane);
+        // v2.9 归档/刷新场景：详情接口自带落库金句（直播中由 SSE golden_quote 增量推送）
+        if (detail.golden_quotes?.length) {
+          useDebateStore.getState().applyGoldenQuotes(detail.golden_quotes);
+        }
       } catch {
         /* 详情失败不阻塞直播订阅 */
       }
@@ -137,6 +145,8 @@ export function useDebateStream(debateId: number | string | undefined): void {
       bind<{ marks: FallacyMark[] }>("fallacy", (d) => useDebateStore.getState().setFallacyMarks(d.marks));
       // v2.7 复盘泳道总结：每条发言后推最新一份（重连由服务端补发 last_swimlane）
       bind<SwimlanePayload>("swimlane", (d) => useDebateStore.getState().applySwimlane(d));
+      // v2.9 金句摘录：增量推送（重连由服务端补发全量累计金句，store 内去重合并）
+      bind<{ quotes: GoldenQuote[] }>("golden_quote", (d) => useDebateStore.getState().applyGoldenQuotes(d.quotes));
       bind("error", () => undefined); // error 事件仅提示性；终态由 status 承载
       bind<{ status: DebateStatus; error: string | null }>("status", (d) => {
         useDebateStore.getState().setStatus(d.status, d.error);
@@ -149,6 +159,14 @@ export function useDebateStream(debateId: number | string | undefined): void {
             .then((page) => {
               page.items.forEach((s) => useDebateStore.getState().applySpeech(s));
               useDebateStore.getState().ingestFallacies(page.items);
+            })
+            .catch(() => undefined);
+          // v2.9 终态兜底：落库金句回读合并（与 swimlane 同一补拉纪律）
+          void getDebate(debateId)
+            .then((detail) => {
+              if (detail.golden_quotes?.length) {
+                useDebateStore.getState().applyGoldenQuotes(detail.golden_quotes);
+              }
             })
             .catch(() => undefined);
         }

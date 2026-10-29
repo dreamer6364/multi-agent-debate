@@ -115,6 +115,17 @@ class ElenchusConfig(BaseModel):
                               # per_camp=2 时 4 条全并行，墙钟 ≈ 最慢单条，而非 Σ单条
 
 
+class GoldenQuoteConfig(BaseModel):
+    """流式金句摘录（v2.9）：每条辩手发言落定即由轻量 LLM 摘金句（失败静默降级）。"""
+
+    enabled: bool = True
+    timeout_seconds: float = 30.0   # 单条摘录超时
+    parallel: int = 2               # 并行摘录度（1 = 顺序）
+    max_per_speech: int = 2         # 单条发言最多摘录条数
+    max_total: int = 16             # 全场金句总数封顶（宁缺毋滥）
+    min_len: int = 60               # 参与摘录的最短发言字数
+
+
 class AgentToolsConfig(BaseModel):
     """辩手 Agent 工具循环（v1.8）：模型经 function calling 主动调工具共同生成发言。"""
 
@@ -130,6 +141,7 @@ class ToolsConfig(BaseModel):
 
     elenchus: ElenchusConfig = ElenchusConfig()
     agent: AgentToolsConfig = AgentToolsConfig()
+    golden: GoldenQuoteConfig = GoldenQuoteConfig()
 
 
 class WebSearchConfig(BaseModel):

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { FallacyMark, LiveSpeech, SpeechDeltaEvent, SwimlanePayload, TimerEvent, Verdict } from "../api/types";
+import type { FallacyMark, GoldenQuote, LiveSpeech, SpeechDeltaEvent, SwimlanePayload, TimerEvent, Verdict } from "../api/types";
 
 export type DebateStatus = "pending" | "running" | "finished" | "failed" | "stopped" | null;
 
@@ -37,6 +37,8 @@ interface DebateLiveState {
   fallaciesBySeq: Record<number, FallacyMark[]>;
   /** v2.7 复盘泳道总结（阶段 × 阵营泳道）：SSE swimlane 事件实时更新，归档由详情接口兜底 */
   swimlane: SwimlanePayload | null;
+  /** v2.9 金句摘录：SSE golden_quote 增量推送，归档/刷新由详情接口 golden_quotes 兜底 */
+  goldenQuotes: GoldenQuote[];
   hydrate: (payload: { status: DebateStatus; speeches: LiveSpeech[] }) => void;
   applyDelta: (payload: SpeechDeltaEvent) => void;
   applySpeech: (speech: LiveSpeech) => void;
@@ -48,6 +50,7 @@ interface DebateLiveState {
   setFallacyMarks: (marks: FallacyMark[]) => void;
   ingestFallacies: (items: Array<{ seq: number; fallacies?: FallacyMark[] }>) => void;
   applySwimlane: (payload: SwimlanePayload) => void;
+  applyGoldenQuotes: (quotes: GoldenQuote[]) => void;
   setStatus: (status: DebateStatus, error?: string | null) => void;
   setConnected: (connected: boolean) => void;
   reset: () => void;
@@ -70,6 +73,7 @@ const INITIAL = {
   lastSeq: 0,
   fallaciesBySeq: {},
   swimlane: null,
+  goldenQuotes: [],
 };
 
 /** 谬误标注去重合并：同名+同引文视为同一条（SSE 与 REST 补拉重叠场景） */
@@ -161,6 +165,13 @@ export const useDebateStore = create<DebateLiveState>((set) => ({
   // v2.5：每轮一张图。同 version 重发（重连补发/重放）只覆盖不追加，避免历史里出现重复回合。
   // v2.7：整份泳道总结随发言推进整体替换（后端按实录全量现算，无版本合并问题）
   applySwimlane: (payload) => set({ swimlane: payload }),
+  // v2.9 金句去重合并：quote 归一化文本为键（重连全量补发/详情兜底与增量事件重叠场景）
+  applyGoldenQuotes: (quotes) =>
+    set((state) => {
+      const norm = (q: GoldenQuote) => q.quote.replace(/[\s，。、；：？！"'“”‘’（）()《》<>【】\[\]·…—\-,.:;?!]+/g, "").toLowerCase();
+      const fresh = quotes.filter((q) => !state.goldenQuotes.some((x) => norm(x) === norm(q)));
+      return fresh.length ? { goldenQuotes: [...state.goldenQuotes, ...fresh].sort((a, b) => a.seq - b.seq) } : {};
+    }),
   setStatus: (status, error = null) => set({ status, error }),
   setConnected: (connected) => set({ connected }),
   reset: () => set({ ...INITIAL }),

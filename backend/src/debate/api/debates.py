@@ -214,6 +214,8 @@ async def get_debate(debate_id: int, user=Depends(get_current_user),
         "started_at": iso_cn(debate.started_at), "finished_at": iso_cn(debate.finished_at),
         "created_at": iso_cn(debate.created_at),
         "swimlane": swimlane,
+        # v2.9 金句摘录（终态随 cfg_json 落库；直播中由 SSE golden_quote 事件实时推送）
+        "golden_quotes": (debate.cfg_json or {}).get("golden_quotes") or [],
     }
 
 
@@ -376,6 +378,10 @@ async def stream_debate(debate_id: int, request: Request, after_seq: int = 0,
             if bus.last_swimlane:
                 yield _sse({"event": "swimlane", "id": bus.allocate_id(),
                             "data": bus.last_swimlane})
+            # v2.9：重连补发已累计的金句（前端按 quote 文本去重，全量补发幂等）
+            if bus.golden_quotes:
+                yield _sse({"event": "golden_quote", "id": bus.allocate_id(),
+                            "data": {"quotes": list(bus.golden_quotes)}})
             # 3) 实时消费
             while True:
                 try:

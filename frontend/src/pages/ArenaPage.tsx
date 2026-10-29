@@ -14,6 +14,7 @@ import { StreamingCard } from "../components/StreamingCard";
 import { TimerBar } from "../components/TimerBar";
 import { VerdictBanner } from "../components/VerdictBanner";
 import { SwimlaneSummary } from "../components/SwimlaneSummary";
+import { GoldenQuotesPanel } from "../components/GoldenQuotesPanel";
 import { useDebateStream } from "../hooks/useDebateStream";
 import { useDebateStore } from "../stores/debateStore";
 
@@ -47,6 +48,7 @@ export default function ArenaPage() {
   const streaming = useDebateStore((s) => s.streaming);
   const connected = useDebateStore((s) => s.connected);
   const liveSwimlane = useDebateStore((s) => s.swimlane);
+  const goldenQuotes = useDebateStore((s) => s.goldenQuotes);
   const fallaciesBySeq = useDebateStore((s) => s.fallaciesBySeq);
   const fallacyCount = useMemo(
     () => Object.values(fallaciesBySeq).reduce((acc, arr) => acc + arr.length, 0),
@@ -203,6 +205,12 @@ export default function ArenaPage() {
       key: "swimlane",
       label: "📋 复盘总结",
       children: <SwimlaneSummary payload={liveSwimlane ?? detail?.swimlane ?? null} />,
+    },
+    {
+      // v2.9 金句摘录：直播随 SSE 增量生长，归档用详情接口落库数据兜底
+      key: "golden",
+      label: `✨ 金句${(goldenQuotes.length ?? 0) ? `（${goldenQuotes.length}）` : ""}`,
+      children: <GoldenQuotesPanel quotes={goldenQuotes} />,
     },
     { key: "qc", label: `🧐 质检报告${fallacyCount ? `（${fallacyCount}）` : ""}`, children: <FallacyReport speeches={speeches} /> },
     { key: "judge", label: "⭐ 评委打分", children: (

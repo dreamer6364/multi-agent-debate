@@ -811,3 +811,50 @@ a.neu-btn-accent.hero-btn { color: #fff; }
   .sl-row { grid-template-columns: 96px 1fr 1fr; }
   .sl-cell.sl-public { grid-column: 2 / -1; border-top: 1px dashed rgba(138, 147, 165, 0.28); border-left: 0; }
 }
+
+/* ---- v2.9 金句摘录（GoldenQuotesPanel）---- */
+.gq-empty {
+  padding: 46px 20px; text-align: center; color: var(--ink-3);
+  background: var(--neu-bg); border-radius: 16px;
+  box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light);
+}
+.gq-empty-title { font-size: 15px; font-weight: 700; color: var(--ink-2); margin-bottom: 8px; }
+.gq-empty-sub { font-size: 12.5px; line-height: 1.8; max-width: 540px; margin: 0 auto; }
+
+.gq { display: flex; flex-direction: column; gap: 12px; }
+.gq-list {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px;
+}
+.gq-card {
+  margin: 0; padding: 16px 18px 13px; display: flex; flex-direction: column; gap: 9px;
+  background: var(--neu-bg); border-radius: 16px;
+  box-shadow: 4px 4px 9px var(--neu-dark), -4px -4px 9px var(--neu-light);
+  animation: gq-pop 0.35s ease both;
+}
+@keyframes gq-pop { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+.gq-text {
+  margin: 0; font-size: 14.5px; font-weight: 700; line-height: 1.8; color: var(--ink);
+}
+.gq-kind {
+  display: inline-block; font-size: 11px; font-weight: 800; line-height: 1.6;
+  padding: 1px 9px; border-radius: 999px; margin-right: 7px; vertical-align: 2px;
+}
+.gq-kind-sharp { color: #8f2b2b; background: rgba(255, 107, 107, 0.13); }
+.gq-kind-rhetoric { color: #7a5a00; background: rgba(240, 178, 34, 0.16); }
+.gq-kind-insight { color: var(--accent-deep); background: rgba(109, 93, 252, 0.11); }
+.gq-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
+  font-size: 12px; color: var(--ink-3); border-top: 1px dashed rgba(138, 147, 165, 0.26);
+  padding-top: 8px;
+}
+.gq-speaker { font-weight: 700; color: var(--ink-2); }
+.gq-camp-pro { color: var(--accent-deep); }
+.gq-camp-con { color: var(--con-deep); }
+.gq-phase { opacity: 0.85; }
+.gq-comment { color: var(--ink-3); font-style: normal; }
+.gq-comment::before { content: "—— "; opacity: 0.7; }
+.gq-note { font-size: 12px; color: var(--ink-3); margin: 4px 2px 0; line-height: 1.7; }
+.gq-count-tag {
+  margin-inline-start: 6px !important; border: 0 !important;
+  color: #7a5a00 !important; background: rgba(240, 178, 34, 0.16) !important;
+}

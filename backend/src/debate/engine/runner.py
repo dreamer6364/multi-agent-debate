@@ -25,6 +25,7 @@ class DebateResult:
     verdict: Verdict | None = None
     error: str | None = None
     machine_marks: list[dict] = field(default_factory=list)  # v1.7 Elenchus 谬误标注
+    golden_quotes: list[dict] = field(default_factory=list)  # v2.9 金句摘录
     usage: dict[str, int] = field(default_factory=dict)
 
 
@@ -94,7 +95,35 @@ def run_debate(
             ctx.qc = qc_stream
         except Exception:  # noqa: BLE001 —— 流式质检失败回落评审阶段批量模式
             qc_stream = None
+    # v2.9 流式金句摘录：开赛即挂 GoldenQuoteStream，每条辩手发言落定（track_speech）
+    # 就异步摘录并实时推 golden_quote SSE；引擎收尾时 harvest 有界收割随结果落库。
+    golden_stream = None
+    golden_cfg = getattr(config.tools, "golden", None)
+    if golden_cfg is not None and bool(getattr(golden_cfg, "enabled", False)):
+        try:
+            from .tools.golden_stream import GoldenQuoteStream
+
+            golden_stream = GoldenQuoteStream(
+                timeout=float(getattr(golden_cfg, "timeout_seconds", 30.0)),
+                parallel=int(getattr(golden_cfg, "parallel", 2)),
+                max_per_speech=int(getattr(golden_cfg, "max_per_speech", 2)),
+                max_total=int(getattr(golden_cfg, "max_total", 16)),
+                on_quotes=lambda quotes: ctx.emit("golden_quote", quotes=quotes),
+            )
+            ctx.golden = golden_stream
+        except Exception:  # noqa: BLE001 —— 金句摘录失败不影响辩论本身
+            golden_stream = None
     graph = build_graph(ctx, fmt)
+
+    def drain_golden(wait: float) -> list[dict]:
+        """终态收割金句：有界等待剩余摘录，任何失败返回已摘到的部分。"""
+        if golden_stream is None:
+            return []
+        try:
+            return golden_stream.harvest(wait)
+        except Exception:  # noqa: BLE001
+            return []
+
     try:
         final = graph.invoke(initial_state())
         return DebateResult(
@@ -103,16 +132,23 @@ def run_debate(
             scorecards=final.get("scorecards", []),
             verdict=final.get("verdict"),
             machine_marks=final.get("machine_marks", []),
+            golden_quotes=drain_golden(8.0),
             usage=dict(gateway.usage),
         )
     except DebateCancelled:
         return DebateResult(
-            status="stopped", transcript=list(ctx.speeches), usage=dict(gateway.usage),
+            status="stopped", transcript=list(ctx.speeches),
+            golden_quotes=drain_golden(1.0),
+            usage=dict(gateway.usage),
         )
     except DebateAborted as exc:
         return DebateResult(
-            status="failed", transcript=list(ctx.speeches), error=str(exc), usage=dict(gateway.usage),
+            status="failed", transcript=list(ctx.speeches), error=str(exc),
+            golden_quotes=drain_golden(1.0),
+            usage=dict(gateway.usage),
         )
     finally:
         if qc_stream is not None:
             qc_stream.close()
+        if golden_stream is not None:
+            golden_stream.close()
