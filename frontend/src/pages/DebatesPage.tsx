@@ -26,6 +26,14 @@ function errorText(err: unknown, fallback: string): string {
   return body?.message || fallback;
 }
 
+/** ISO 时间（如 2026-10-30T15:45:18+08:00）→ 常用格式「2026-10-30 15:45」；解析失败原样返回 */
+function fmtTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 export default function DebatesPage() {
   const navigate = useNavigate();
   const { message, modal } = AntApp.useApp();
@@ -117,7 +125,7 @@ export default function DebatesPage() {
             title: "胜方", dataIndex: "winner", width: 80,
             render: (v: string | null) => (v ? (v === "pro" ? <Tag color="blue">正方</Tag> : <Tag color="red">反方</Tag>) : "—"),
           },
-          { title: "创建时间", dataIndex: "created_at", width: 200 },
+          { title: "创建时间", dataIndex: "created_at", width: 160, render: (v: string) => fmtTime(v) },
           {
             title: "操作", width: 90, align: "center" as const,
             render: (_: unknown, record: { id: number; status: string }) => {
