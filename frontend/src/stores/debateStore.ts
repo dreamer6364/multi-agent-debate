@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { FallacyMark, GoldenQuote, LiveSpeech, SpeechDeltaEvent, SwimlanePayload, TimerEvent, Verdict } from "../api/types";
+import type { FallacyMark, GoldenQuote, InterruptEvent, LiveSpeech, SpeechDeltaEvent, SwimlanePayload, TimerEvent, Verdict } from "../api/types";
 
 export type DebateStatus = "pending" | "running" | "finished" | "failed" | "stopped" | null;
 
@@ -42,6 +42,8 @@ interface DebateLiveState {
   hydrate: (payload: { status: DebateStatus; speeches: LiveSpeech[] }) => void;
   applyDelta: (payload: SpeechDeltaEvent) => void;
   applySpeech: (speech: LiveSpeech) => void;
+  /** P1-1 打断实时修正：按 seq 就地替换已渲染发言为截断后终稿（打断徽标 + 旁注同帧生效） */
+  applyInterrupt: (payload: InterruptEvent) => void;
   setPhaseStart: (payload: PhaseStartPayload) => void;
   setTimer: (timer: TimerEvent) => void;
   setJudging: () => void;
@@ -144,6 +146,29 @@ export const useDebateStore = create<DebateLiveState>((set) => ({
         };
       }
       return { streaming: { ...current, text: current.text + payload.delta } };
+    }),
+  applyInterrupt: (payload) =>
+    set((state) => {
+      if (payload.seq === undefined) return {}; // 旧版载荷（无 seq）：无可修正对象
+      const idx = state.speeches.findIndex((s) => s.seq === payload.seq);
+      const streaming =
+        state.streaming && state.streaming.seq === payload.seq
+          ? { ...state.streaming, text: payload.text ?? state.streaming.text } // 打断落在打字卡上：同步截断
+          : state.streaming;
+      if (idx === -1) {
+        // 打断早于该条 speech 定稿到达（流式窗口）：只截断打字卡；终稿 speech 自带截断文本
+        return streaming === state.streaming ? {} : { streaming };
+      }
+      const prev = state.speeches[idx];
+      const speeches = state.speeches.slice();
+      speeches[idx] = {
+        ...prev,
+        text: payload.text ?? prev.text,
+        interrupted: true,
+        side_notes: payload.side_notes ?? prev.side_notes,
+        word_count: payload.word_count ?? prev.word_count,
+      };
+      return { speeches, streaming };
     }),
   setPhaseStart: (payload) =>
     set({

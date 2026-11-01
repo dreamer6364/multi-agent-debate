@@ -82,6 +82,44 @@ describe("debateStore 谬误标注挂载（v1.7 Elenchus）", () => {
   });
 });
 
+describe("debateStore 打断实时修正（P1-1）", () => {
+  beforeEach(() => useDebateStore.getState().reset());
+
+  const ANSWER = { seq: 4, speaker: "pro-1", camp: "pro" as const, text: "完整回答的前半句。后半句是被截断的部分。", interrupted: false, side_notes: [], word_count: 24 };
+
+  it("FE-INT-01 interrupt 就地截断已渲染发言并打上打断标记", () => {
+    const s = useDebateStore.getState();
+    s.applySpeech(ANSWER);
+    s.applyInterrupt({
+      by: "con-2", reason: "请正面回答", seq: 4,
+      text: "完整回答的前半句。", side_notes: ["质询方打断：请正面回答"], word_count: 8,
+    });
+    const got = useDebateStore.getState().speeches[0];
+    expect(got.text).toBe("完整回答的前半句。");
+    expect(got.interrupted).toBe(true);
+    expect(got.side_notes).toContain("质询方打断：请正面回答");
+    expect(got.word_count).toBe(8);
+  });
+
+  it("FE-INT-02 无 seq 的旧版载荷与未知 seq 均为无操作", () => {
+    const s = useDebateStore.getState();
+    s.applySpeech(ANSWER);
+    s.applyInterrupt({ by: "con-2", reason: "请正面回答" }); // 旧版：无 seq
+    s.applyInterrupt({ by: "con-2", reason: "x", seq: 99, text: "不存在" });
+    const got = useDebateStore.getState().speeches[0];
+    expect(got.text).toBe(ANSWER.text);
+    expect(got.interrupted).toBe(false);
+  });
+
+  it("FE-INT-03 打断落在流式打字卡上时同步截断", () => {
+    const s = useDebateStore.getState();
+    s.applyDelta({ seq: 4, delta: "前半句。后半句。", attempt: 0, speaker: "pro-1", camp: "pro" });
+    s.applyInterrupt({ by: "con-2", reason: "请正面回答", seq: 4, text: "前半句。", word_count: 4 });
+    const st = useDebateStore.getState().streaming!;
+    expect(st.text).toBe("前半句。");
+  });
+});
+
 describe("debateStore 复盘泳道总结（v2.7）", () => {
   beforeEach(() => useDebateStore.getState().reset());
 

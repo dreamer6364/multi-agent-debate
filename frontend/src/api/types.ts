@@ -59,6 +59,16 @@ export interface PhaseStartEvent {
   budget_words: number;
 }
 
+/** SSE interrupt 事件载荷（P1-1：附带被打断发言的 seq 与截断后终稿，前端就地修正已渲染内容） */
+export interface InterruptEvent {
+  by: string;
+  reason: string;
+  seq?: number;
+  text?: string;
+  side_notes?: string[];
+  word_count?: number;
+}
+
 export interface TimerEvent {
   type: "warning" | "time_up";
   speaker: string | null;

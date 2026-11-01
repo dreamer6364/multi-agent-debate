@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { getDebate, getSpeeches } from "../api/client";
 import type {
-  DebateStatus, FallacyMark, GoldenQuote, LiveSpeech, PhaseStartEvent,
+  DebateStatus, FallacyMark, GoldenQuote, InterruptEvent, LiveSpeech, PhaseStartEvent,
   SpeechDeltaEvent, SwimlanePayload, TimerEvent, Verdict,
 } from "../api/types";
 import { useDebateStore, type JudgingProgress } from "../stores/debateStore";
@@ -135,6 +135,8 @@ export function useDebateStream(debateId: number | string | undefined): void {
 
       bind<LiveSpeech>("speech", (d) => useDebateStore.getState().applySpeech(d));
       bind<SpeechDeltaEvent>("speech_delta", (d) => useDebateStore.getState().applyDelta(d));
+      // P1-1 打断实时修正：interrupt 携带被打断发言的 seq 与截断后终稿，就地改写已渲染内容
+      bind<InterruptEvent>("interrupt", (d) => useDebateStore.getState().applyInterrupt(d));
       bind<PhaseStartEvent>("phase_start", (d) => useDebateStore.getState().setPhaseStart(d));
       bind<TimerEvent>("timer", (d) => useDebateStore.getState().setTimer(d));
       bind("judging", () => useDebateStore.getState().setJudging());
