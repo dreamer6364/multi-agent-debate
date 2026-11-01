@@ -141,6 +141,14 @@ class DebateService:
         def on_event(event: dict) -> None:
             if bus is not None:
                 loop.call_soon_threadsafe(bus.publish, dict(event))
+            # P1-1 打断实时修正：该发言行多半已按"完整文本"插入（打断发生在下一条提问时），
+            # 就地改成截断后文本——断线重连从 DB 重放时才是"已被打断"的正确终稿。
+            # 行尚未插入时跳过：队列里的 Speech 是同一对象引用，drain 落库时已是截断文本。
+            if event.get("event") == "interrupt" and event.get("data", {}).get("seq"):
+                payload = dict(event["data"])
+                loop.call_soon_threadsafe(
+                    lambda: asyncio.ensure_future(self._patch_interrupted(debate_id, payload))
+                )
 
         def on_delta(seq: int, delta: str, attempt: int, speaker: str, camp: str) -> None:
             """逐字流式（v2.1 speech_delta）：仅直播通道，不落库不重放。"""
@@ -275,6 +283,29 @@ class DebateService:
             row.tokens = speech.tokens
             session.add(row)
             await session.commit()
+
+    async def _patch_interrupted(self, debate_id: int, payload: dict) -> None:
+        """P1-1：打断回改的实时落库——把已插入的该条发言就地改为截断后终稿。
+
+        行不存在时静默返回（发言尚未落库，drain 会写入已被引擎截断的同一对象）。
+        任何失败只记日志：终态 `_write_final` 全量 upsert 兜底，不值得打断直播。
+        """
+        try:
+            async with self.sessionmaker() as session:
+                row = (await session.execute(
+                    select(SpeechRow).where(
+                        SpeechRow.debate_id == debate_id, SpeechRow.seq == payload["seq"])
+                )).scalar_one_or_none()
+                if row is None:
+                    return
+                row.text = payload.get("text", row.text)
+                row.side_notes = list(payload.get("side_notes") or row.side_notes or [])
+                row.interrupted = True
+                row.word_count = payload.get("word_count", row.word_count)
+                session.add(row)
+                await session.commit()
+        except Exception:  # noqa: BLE001 —— 实时修正尽力而为，终态 upsert 兜底
+            logger.warning("debate %s 打断修正落库失败", debate_id, exc_info=True)
 
     async def _finalize(self, debate_id: int, result: DebateResult) -> None:
         """终态落库：撞唯一键时先清掉历史重复发言再重写一次，绝不让整场因此判失败。"""

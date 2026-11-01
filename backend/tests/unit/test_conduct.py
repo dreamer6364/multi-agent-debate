@@ -49,7 +49,7 @@ def test_hard_evasion_rules():
 
 
 def test_is_repetitive_v15():
-    """复读检测（v1.5）：≥15 字连续相同片段判定复读。"""
+    """复读检测：≥25 字连续相同片段判定复读（P1-3：15→25，15 字只是半句话、误伤回扣判准）。"""
     from debate.engine.sim.conduct import is_repetitive
     a = "正如弗洛姆在《爱的艺术》中指出，爱是需要学习的能力，包含关心、责任、尊重与了解四个要素。"
     b = "我方再次强调，爱是需要学习的能力，包含关心、责任、尊重与了解四个要素，因此主动去爱更高尚。"
@@ -57,3 +57,19 @@ def test_is_repetitive_v15():
     assert is_repetitive(b, [a])
     assert not is_repetitive(c, [a])
     assert not is_repetitive("短", [a])
+
+
+def test_is_repetitive_p13_threshold_boundary():
+    """P1-3 边界：15~24 字重叠（回扣判准式的正当复述）不再判复读，≥25 字仍判。"""
+    from debate.engine.sim.conduct import is_repetitive
+    a = "我方判准是：何者更有利于人的长远福祉。"
+    b = "回到我方判准：何者更有利于人的长远福祉，效率只是手段。"
+    run16 = "技术是文明演进的常态这一历史口径"  # 16 字连续片段
+    c = "我方坚持技术是文明演进的常态这一历史口径。"
+    d = "重申一遍，技术是文明演进的常态这一历史口径，对方从未正面回应。"
+    assert not is_repetitive(b, [a])  # 16 字重叠 < 25：正当回扣不判复读
+    assert not is_repetitive(c, [run16])
+    assert not is_repetitive(d, [run16])
+    run27 = "爱是需要学习的能力，包含关心、责任、尊重与了解四个要素"  # 27 字连续片段
+    e = "我方再次强调：" + run27 + "，因此主动去爱更高尚。"
+    assert is_repetitive(e, [run27])  # ≥25 字大段复述：仍判复读

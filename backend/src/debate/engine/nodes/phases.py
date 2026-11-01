@@ -12,6 +12,8 @@ from ..procedure import PHASE_NAMES, PHASE_NUMBERS, minutes_for
 from ..runtime import DebateAborted, DebateCancelled, DebateContext
 from ..schema import Camp, Speech
 from ..sim.conduct import (
+    FollowupLedger,
+    flag_unverified_claims,
     has_interrupt_marker,
     is_hard_evasion,
     is_repetitive,
@@ -110,6 +112,16 @@ def _book_names(cards) -> list[str]:
         for m in _re.findall(r"《[^》]+》", c.source):
             names.append(m)
     return names
+
+def _evidence_sources(ctx: DebateContext) -> list[str]:
+    """平台注入的全部证据来源（双方并集，P2-4 数据诚信线索的白名单）。"""
+    sources: list[str] = []
+    for cards in (ctx.evidence or {}).values():
+        for card in cards or []:
+            src = (getattr(card, "source", "") or "").strip()
+            if src and src not in sources:
+                sources.append(src)
+    return sources
 
 def _usage_line(ctx, camp_cards) -> str:
     """引用纪律注入：本场已被引用 ≥2 次的来源提示勿再用。"""
@@ -333,6 +345,8 @@ def _ask(
                 text=placeholder, side_notes=["LLM 格式异常"], word_count=len(placeholder),
             )
     notes = scan(text, config.conduct.abuse_keywords)
+    # P2-4 数据诚信线索：精确百分比/研究结论句若未标注平台白名单来源 → 旁注"数据待查"交评委核验
+    notes.extend(flag_unverified_claims(text, _evidence_sources(ctx)))
     if not allow_interrupt_marker:
         if has_interrupt_marker(text):
             notes.append("违规：非质询环节打断")
@@ -395,6 +409,7 @@ def make_cross_node(ctx: DebateContext):
             ctx.check_cancel()
             clock = TurnClock(budget, ctx.config.procedure.speed_cpm)
             ledger = InterruptLedger(ctx.config.conduct.max_interrupts_per_answer)
+            followups = FollowupLedger(threshold=3)  # P0-2 回应义务：同一问题第 3 次追问计数
             last_answer: Speech | None = None
             while clock.remaining >= MIN_TURN_WORDS:
                 ctx.check_cancel()
@@ -407,10 +422,17 @@ def make_cross_node(ctx: DebateContext):
                 clean, reason = parse_interrupt(question.text)
                 question.text = clean
                 question.word_count = len(clean)
+                asks = followups.register_ask(clean)  # P0-2 回应义务：本问题被追问第几次
                 if reason is not None:
                     if last_answer is not None and reason and ledger.try_consume(last_answer.seq):
                         apply_interrupt_to_answer(last_answer, reason)
-                        ctx.emit("interrupt", by=questioner, reason=reason)
+                        # P1-1 打断实时修正：带上被打断发言的 seq 与截断后文本——
+                        # 该回答的 speech 事件早已推送（完整文本），前端凭此事件就地截断已渲染内容，
+                        # 不必等到终态 upsert 才看到"被打断"（SPEC §4.3 模拟口径的直播侧落地）。
+                        ctx.emit("interrupt", by=questioner, reason=reason,
+                                 seq=last_answer.seq, text=last_answer.text,
+                                 side_notes=list(last_answer.side_notes),
+                                 word_count=last_answer.word_count)
                     else:
                         question.side_notes.append("打断违规（超限或未说明理由）")
                 question_clock_notes = clock.consume(question.word_count)
@@ -421,10 +443,20 @@ def make_cross_node(ctx: DebateContext):
                     break
                 answer = _ask(
                     ctx, speaker=respondent, phase=phase, phase_name=phase_name,
-                    instruction="你正在被质询：只答不问，回答简洁、正面、不回避。",
+                    instruction=(
+                        "你正在被质询，只答不问。防守要领：①先正面回应问题本身（是/否/程度），"
+                        "再给一句理由，不要绕开提问词；②守住我方定义与判准——问题若暗含错误前提，"
+                        "先点破前提错在哪里再回答；③只作最小必要让步（「退一步讲」），"
+                        "让步不得动摇判准；④对方问题超出辩题范围时，明确指出并拉回本方判准作答。"
+                        "回答须简洁、正面、不回避。"
+                    ),
                     cap_words=clock.remaining, hard_cut=True, recent=base + new, digest_text=digest_text,
                     phase_key="cross_examination",
                 )
+                # P0-2 回应义务（守则四/G6）：同一问题第 3 次追问仍无对应回答 → 旁注"回避追问"
+                if followups.is_unanswered(answer.text, asks):
+                    answer.side_notes.append("回避追问")
+                followups.register_answer(answer.text)
                 answer_notes = clock.consume(answer.word_count)
                 answer.side_notes.extend(answer_notes)
                 _timer_events(ctx, respondent, answer_notes)
@@ -449,6 +481,7 @@ def make_attack_node(ctx: DebateContext):
         for questioner, targets in ATTACK_GROUPS:
             ctx.check_cancel()
             clock = TurnClock(budget, ctx.config.procedure.speed_cpm)
+            followups = FollowupLedger(threshold=3)  # P0-2 回应义务：同一问题第 3 次追问计数
             for target in targets:
                 ctx.check_cancel()
                 if clock.remaining < MIN_TURN_WORDS:
@@ -459,16 +492,31 @@ def make_attack_node(ctx: DebateContext):
                     cap_words=clock.remaining, hard_cut=True, recent=base + new, digest_text=digest_text,
                     phase_key="attack",
                 )
-                question.side_notes.extend(clock.consume(question.word_count))
+                asks = followups.register_ask(question.text)  # P0-2 回应义务：本问题被追问第几次
+                # v2.10：提问方同样吃这一组的共享时间池，其计时旁注须映射为 timer 事件
+                # （此前只落旁注不发事件，直播计时条在攻辩环节对提问方不动——与质询环节不一致）
+                question_clock_notes = clock.consume(question.word_count)
+                question.side_notes.extend(question_clock_notes)
+                _timer_events(ctx, questioner, question_clock_notes)
                 _emit(ctx, new, question)
                 if clock.remaining <= 0:
                     break
                 answer = _ask(
                     ctx, speaker=target, phase=phase, phase_name=phase_name,
-                    instruction="你正在被盘问：只能回答，不能反问；正面回应问题本身。",
+                    instruction=(
+                        "你正在被盘问，只能回答、不能反问。防守要领：①直接回应问题本身，"
+                        "不换话题、不反问对方；②二难题被夹击时，指出两难前提不成立（还有第三种可能）"
+                        "或选择对己方判准损害最小的一项并说明理由；③归谬题被推演时，"
+                        "指出对方推演跳步之处，守住原命题；④数据逼问答不出时，"
+                        "如实说明「我方暂无该精确数据」并给限定语与常识性论证，禁止编造。"
+                    ),
                     cap_words=clock.remaining, hard_cut=True, recent=base + new, digest_text=digest_text,
                     phase_key="attack",
                 )
+                # P0-2 回应义务（守则四/G6）：同一问题第 3 次追问仍无对应回答 → 旁注"回避追问"
+                if followups.is_unanswered(answer.text, asks):
+                    answer.side_notes.append("回避追问")
+                followups.register_answer(answer.text)
                 answer_notes = clock.consume(answer.word_count)
                 answer.side_notes.extend(answer_notes)
                 _timer_events(ctx, target, answer_notes)
@@ -512,10 +560,12 @@ def make_free_node(ctx: DebateContext):
                 instruction=("你正在自由辩论：这是全场对抗最激烈的环节。把话说完整再交棒——"
                              "观点、依据、对对方上一轮的具体回击一次说透，不要为省字数半途收束；"
                              "篇幅按内容需要自然伸缩，短打可以三两句，交锋胶着时充分展开。"
-                             "每轮至少使用一个反问句（如'难道……吗？''若按对方逻辑，……又将如何？'）"
-                             "直击对方要害，增强对抗性；也可以连续追问，逼对方正面回应。"
+                             "反问句是自由辩的优先武器（如'难道……吗？''若按对方逻辑，……又将如何？'），"
+                             "直击对方要害、增强对抗性，对方含糊其辞或自相矛盾时尤其有效；"
+                             "也可以连续追问，逼对方正面回应。是否使用、用几个，由你按交锋需要自行判断，"
+                             "不必每轮都用。"
                              "禁止在发言中模拟打断或抢话；"
-                             "禁止重复本方已陈述过的论据原句（评委视为复读），"
+                             "禁止重复本方已陈述过的论据原句（会被标注复读），"
                              "每轮要么深挖对方上一发言的具体漏洞，要么推进新角度。"),
                 cap_words=cap, hard_cut=True, recent=base + new, digest_text=digest_text,
                 phase_key="free_debate",
@@ -523,7 +573,13 @@ def make_free_node(ctx: DebateContext):
             if is_hard_evasion(speech.text, previous):
                 speech.side_notes.append("回避追问")
             team_texts = [sp.text for sp in base + new if sp.camp == camp and sp.phase == phase]
-            if is_repetitive(speech.text, team_texts):
+            # P1-3 复读判定收紧：阈值提高到 25 字（15 字只是半句话，回扣己方判准/定义
+            # 几乎必然命中，误伤率高）；且若本条同时引用了对方原话（≥12 字重叠），
+            # 属于"有交锋的复述"而非复读。此旁注仅作前端提示——评委侧的复读信号
+            # 由 QC 流式质检的 8-gram 重叠率规则提供（qc_stream，更精确且带相似度）。
+            opponent_texts = [sp.text for sp in base + new if sp.camp is not camp and sp.phase == phase]
+            quotes_opponent = is_repetitive(speech.text, opponent_texts, min_overlap=12)
+            if not quotes_opponent and is_repetitive(speech.text, team_texts):
                 speech.side_notes.append("复读论据")
             pool_notes = clock.consume(camp, speech.word_count)
             speech.side_notes.extend(pool_notes)

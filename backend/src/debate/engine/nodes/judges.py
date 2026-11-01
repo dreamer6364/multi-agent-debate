@@ -51,6 +51,45 @@ def _checklist(transcript: list[Speech]) -> str:
     return f"全场比赛共 {len(transcript)} 条发言，历经环节 {phases}。"
 
 
+#: 纳入评委纪律记录的旁注关键词（P0-2）。
+#: 命中即视为"该发言的纪律信号"，按发言人聚合后注入评委——表达评委的风度纪律分据此扣分。
+#: 排除：合法打断"质询方打断：…"（属正当质询动作）、剩 30 秒提醒（非违规）、
+#: LLM 降级/格式异常（系统故障，不得算在辩手头上）、"复读论据"（前端提示项；
+#: 评委侧复读信号由 QC 流式质检的 8-gram 重叠率规则提供，更精确且带相似度）。
+#: "数据待查"（P2-4）不是扣分项而是核验线索，交内容评委查证后自行判定。
+_CONDUCT_MARKERS = (
+    "违规：人身攻击", "违规：跳出角色", "打断违规", "回避追问", "时间到", "数据待查",
+)
+
+
+def collect_conduct_records(transcript: list[Speech]) -> str:
+    """把全场所属纪律旁注聚合成可注入评委的清单（P0-2）。
+
+    每条形如：`[环节 N｜辩手] 记录`。无任何记录时返回空串（不注入该段）。
+    """
+    lines: list[str] = []
+    for speech in transcript:
+        if speech.camp is Camp.NEUTRAL:
+            continue  # 主席/评委/计时员旁注不构成辩手纪律记录
+        for note in speech.side_notes or []:
+            if any(marker in note for marker in _CONDUCT_MARKERS):
+                lines.append(f"- [环节 {speech.phase}｜{CAMP_CN[speech.camp]}·{speech.speaker}] {note}")
+    return "\n".join(lines)
+
+
+def collect_evidence_sources(ctx) -> str:
+    """平台注入给辩手的证据卡来源白名单（P0-2）：内容评委据此区分真证据与虚构引用。"""
+    cards = []
+    for camp_cards in (getattr(ctx, "evidence", None) or {}).values():
+        cards.extend(camp_cards or [])
+    sources = []
+    for card in cards:
+        name = (getattr(card, "source", "") or "").strip()
+        if name and name not in sources:
+            sources.append(name)
+    return "；".join(f"《{s}》" if "《" not in s else s for s in sources)
+
+
 def _judge_summary_text(card: ScoreCard) -> str:
     if card.abstained:
         return "本评委输出异常，按规则弃权，评分作废。"
@@ -161,6 +200,9 @@ def make_judging_node(ctx: DebateContext):
 
         digest_text = render_digest(state["digest"])
         checklist = _checklist(base)
+        # P0-2 评委证据链：违规纪律记录 + 证据来源白名单（表达/内容评委据此打分，不再凭空判）
+        conduct_records = collect_conduct_records(base)
+        evidence_sources = collect_evidence_sources(ctx)
 
         # v1.6 Elenchus 机器论证分析：仅注入逻辑评委（工具检测 ≠ 评委结论）
         # v1.7：结构化 marks → SSE fallacy 事件 + state（落库挂载到发言）；任何工具失败降级为纯 LLM 评审
@@ -274,6 +316,8 @@ def make_judging_node(ctx: DebateContext):
                 excerpts=state["digest"].excerpts, checklist=checklist,
                 instruction=_judge_instruction(ctx.format),
                 machine_analysis_text=machine_analysis if judge_id == "judge-logic" else "",
+                conduct_records=conduct_records,
+                evidence_sources=evidence_sources,
             )
             card = None
             loop = asyncio.get_running_loop()

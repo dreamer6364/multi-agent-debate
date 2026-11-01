@@ -134,8 +134,17 @@ def build_judge_messages(
     checklist: str,
     instruction: str,
     machine_analysis_text: str = "",
+    conduct_records: str = "",
+    evidence_sources: str = "",
 ) -> list[dict[str, str]]:
-    """评委调用消息：双方立场与要点 + digest + 原文摘录池 + 各环节要点清单。"""
+    """评委调用消息：双方立场与要点 + digest + 原文摘录池 + 各环节要点清单。
+
+    v2.10 评委证据链补全（P0-2）：
+    - ``conduct_records``：本场违规/纪律旁注清单（人身攻击、打断违规、回避追问、超时叫停）。
+      表达评委的风度纪律分须以它为直接扣分依据（此前它只写在角色文件里，评委却看不到记录）；
+    - ``evidence_sources``：平台注入给辩手的证据卡来源白名单。内容评委据此区分"平台给的真证据"
+      与"辩手编造的引用"（守则三允许引用这些来源，故不得当作虚构数据判负）。
+    """
     both = (
         f"【正方立场】{topic.pro_stance}\n【正方破题要点】\n"
         + "\n".join(f"- {p}" for p in topic.pro_points)
@@ -154,6 +163,17 @@ def build_judge_messages(
     ]
     if machine_analysis_text:
         blocks.append(machine_analysis_text)  # v1.6 Elenchus 机器论证分析（仅逻辑评委）
+    if conduct_records:
+        blocks.append(
+            "【本场违规与纪律记录】（代码侧检测的旁注）「数据待查」是**核验线索**："
+            "内容评委须比对上下文与常识后判定真伪，查实虚构才可判该论点作废，未查实不得扣分；"
+            "其余条目（人身攻击/打断违规/回避追问/超时）是风度纪律分的直接依据。\n" + conduct_records
+        )
+    if evidence_sources:
+        blocks.append(
+            "【平台注入的证据来源白名单】（守则三允许辩手引用以下来源；"
+            "引用它们不属于虚构数据，不得据此判该论点作废）\n" + evidence_sources
+        )
     blocks += [
         f"【各环节要点清单】\n{checklist}",
         f"【评审任务】\n{instruction}",

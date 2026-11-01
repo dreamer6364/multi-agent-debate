@@ -13,6 +13,14 @@ _MARKER = re.compile(r"[【\[]\s*打断\s*[】\]][^。！？!?；;\n]*[。！？
 _PLAIN_MARKER = re.compile(r"[【\[]\s*打断\s*[】\]]\s*")
 # 舞台标记（如 [自由辩论]）：G8 输出纯度，模型偶发把环节名写成标签前缀
 _STAGE_TAG = re.compile(r"^\s*[【\[][^【\】\]]{1,8}[\]】]\s*")
+# 提问短文本比对用的标点/空白归一化（P0-3 回应义务：判定"同一问题"）
+_PUNCT = re.compile(r"[\s，。、；：！？,.;:!?\"'“”‘’（）()《》【】〈〉<>—…·/／|~～]+")
+
+
+def _grams(text: str, n: int = 2) -> set[str]:
+    """二元组集合（去标点）：短提问判定"同一问题"的兜底比对粒度。"""
+    body = _PUNCT.sub("", text or "")
+    return {body[i : i + n] for i in range(max(0, len(body) - n + 1))}
 
 
 def strip_stage_tags(text: str) -> str:
@@ -114,10 +122,12 @@ def strip_forbidden_format(text: str) -> tuple[str, bool]:
     return cleaned, changed or cleaned != text.strip()
 
 
-def is_repetitive(text: str, prior_texts: list[str], min_overlap: int = 15) -> bool:
-    """复读检测（v1.5）：与此前任一发言存在 ≥min_overlap 字的连续相同片段。
+def is_repetitive(text: str, prior_texts: list[str], min_overlap: int = 25) -> bool:
+    """复读检测（v1.5，P1-3 收紧至 25 字）：与此前任一发言存在 ≥min_overlap 字的连续相同片段。
 
     治"整场复读同一金句"：非整段重复（那是回避），而是大段论据复述。
+    15 字在中文里只是半句话——回扣己方判准/定义的正当复述几乎必然命中，
+    误伤率过高，故默认阈值提到 25 字（一句话量级）。
     实现：text 的定长子串集合 × prior 滑窗匹配（发言 ≤400 字，规模安全）。
     """
     if len(text) < min_overlap:
@@ -134,3 +144,119 @@ def is_hard_evasion(answer_text: str, previous_answers: list[str]) -> bool:
     """L1 硬逃避：空回答或与此前任一回答逐字重复。"""
     text = answer_text.strip()
     return (not text) or any(text == previous.strip() for previous in previous_answers)
+
+
+# ---- P2-4 数据诚信的代码侧线索（SPEC §4.6）：只抓"待查"线索，判定权在内容评委 ----
+_PCT = re.compile(r"\d+(?:[.,]\d+)?\s*[%％]")
+_CLAIM_CUE = re.compile(
+    r"研究表明|研究显示|调查显示|据统计|数据显示|报告指出|报告发现|实证研究|大数据显示"
+)
+_SENT_SPLIT = re.compile(r"[。！？!?；;\n]")
+_QUOTE_MAX = 24
+
+
+def _source_tokens(source: str) -> list[str]:
+    """证据来源 → 可在发言句中匹配的令牌（书名、主体名、作者/机构），长度 ≥2 才有效。"""
+    tokens: list[str] = []
+    tokens += re.findall(r"《([^》]+)》", source)                      # 书名/文献名
+    head = re.split(r"[（(]", source, maxsplit=1)[0]                  # 括号前主体（如"世界银行年度报告"）
+    if head.strip():
+        tokens.append(head.strip())
+    for paren in re.findall(r"[（(]([^）)]+)[）)]", source):          # 括号内的作者/机构
+        tokens += [t for t in re.split(r"[,，、/\s]+", paren) if len(t) >= 2]
+    whole = re.sub(r"[《》（）()\[\]【】\s]", "", source)
+    if len(whole) >= 2:
+        tokens.append(whole)
+    return [t for t in tokens if len(t) >= 2]
+
+
+def flag_unverified_claims(text: str, allowed_sources: list[str],
+                           max_flags: int = 2) -> list[str]:
+    """数据诚信线索抓取（P2-4，守则三/ G5 的代码侧兜底）。
+
+    抓两类高信号表述：①精确百分比；②"研究表明/据统计"式研究结论引用——
+    逐句检查：该句若**未标注任何平台白名单来源**（书名或作者名命中），
+    旁注 `数据待查：「…」` 交内容评委核验。代码不下"造假"结论（SPEC §4.6：
+    数据造假的判定权在评委），只把"值得查的句子"点出来，消除评委凭印象抽查的盲区。
+
+    降噪：反问/质询对方数据的句子（含"对方"且以问号收尾）不抓——那是交锋不是举证。
+    """
+    if not text:
+        return []
+    tokens: list[str] = []
+    for source in allowed_sources or []:
+        tokens += _source_tokens(source)
+    flags: list[str] = []
+    for sentence in _SENT_SPLIT.split(text):
+        s = sentence.strip()
+        if not s or not (_PCT.search(s) or _CLAIM_CUE.search(s)):
+            continue
+        if ("对方" in s and s.endswith(("？", "?"))) or "对方辩友" in s:
+            continue  # 反问对方的数据要求，不是己方举证
+        if any(token in s for token in tokens):
+            continue  # 已标注平台白名单来源（守则三允许直接引用）
+        quote = s[:_QUOTE_MAX] + ("…" if len(s) > _QUOTE_MAX else "")
+        flags.append(f"数据待查：「{quote}」")
+        if len(flags) >= max_flags:
+            break
+    return flags
+
+
+def same_question(new_q: str, prior_q: str, min_overlap: int = 10,
+                  bigram_floor: float = 0.55) -> bool:
+    """判定两条提问是否为"同一问题"的换皮追问（守则四：连续三次追问同一问题）。
+
+    混合判定（P0-3 落地修订）：
+    - 连续片段 ≥min_overlap 字 → 同一问题（几乎原样重复）；
+    - 否则按二元组覆盖率：改写会破坏连续片段、但二元组大体保留，
+      覆盖率 = |A∩B| / min(|A||B|) ≥ bigram_floor 判为同一问题。
+    短提问（长度 < min_overlap）只走二元组覆盖率。
+    """
+    new_q, prior_q = new_q.strip(), prior_q.strip()
+    if not new_q or not prior_q:
+        return False
+    if min(len(new_q), len(prior_q)) >= min_overlap and is_repetitive(new_q, [prior_q], min_overlap):
+        return True
+    a, b = _grams(new_q), _grams(prior_q)
+    if not a or not b:
+        return False
+    return len(a & b) / max(1, min(len(a), len(b))) >= bigram_floor
+
+
+class FollowupLedger:
+    """回应义务计数器（守则四 / G6，SPEC §4.6）：质询与攻辩节点内按"同一问题"聚簇计数。
+
+    L1 确定性实现：同一问题被追问达到 threshold 次、且该次回答是"硬逃避"
+    （空回答或与此前回答逐字重复）→ 判定为"仍无对应回答"，由调用方旁注 `回避追问`。
+    语义性回避（答非所问但不是复读）留给评委 rubric 判定，代码不下结论。
+    """
+
+    def __init__(self, threshold: int = 3, min_overlap: int = 10):
+        self.threshold = threshold
+        self.min_overlap = min_overlap
+        # 每个问题簇：{"questions": [同题各次提问], "answers": [对应各次回答]}
+        self._clusters: list[dict] = []
+
+    def register_ask(self, question: str) -> int:
+        """登记一次提问，返回该问题簇累计被追问的次数（含本次）。"""
+        for cluster in self._clusters:
+            if any(same_question(question, q, self.min_overlap) for q in cluster["questions"]):
+                cluster["questions"].append(question)
+                return len(cluster["questions"])
+        self._clusters.append({"questions": [question], "answers": []})
+        return 1
+
+    def is_unanswered(self, answer_text: str, asks: int) -> bool:
+        """第 threshold 次追问后，该回答是否构成"仍无对应回答"（硬逃避判定）。"""
+        if asks < self.threshold:
+            return False
+        cluster = self._cluster_of(answer_text) or {}
+        return is_hard_evasion(answer_text, cluster.get("answers", []))
+
+    def register_answer(self, answer_text: str) -> None:
+        """把一次回答挂到最近登记的问题簇上（供后续同题追问的复读判定）。"""
+        if self._clusters:
+            self._clusters[-1]["answers"].append(answer_text.strip())
+
+    def _cluster_of(self, _answer_text: str) -> dict | None:
+        return self._clusters[-1] if self._clusters else None

@@ -52,9 +52,11 @@ def test_lite_full_run(assets_root, backend_root, lite_config):
 
 
 def test_full_run_sequence_and_interrupt(assets_root, backend_root, lite_config):
+    events: list[dict] = []
     result = run_debate(
         topic=load_topics(assets_root)[0], fmt=DebateFormat.FULL, config=lite_config,
         gateway=_gateway(backend_root, "full"), compressor=fake_columns, assets_root=assets_root,
+        on_event=events.append,
     )
     assert result.status == "finished"
     assert sorted({s.phase for s in result.transcript}) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]  # UT-GRF-01
@@ -65,6 +67,15 @@ def test_full_run_sequence_and_interrupt(assets_root, backend_root, lite_config)
     interrupted = [s for s in result.transcript if s.interrupted]
     assert interrupted and interrupted[0].speaker == "pro-1"
     assert any(n.startswith("质询方打断：") for n in interrupted[0].side_notes)
+    # P1-1：interrupt 事件须携带被打断发言的 seq 与截断后终稿（前端就地截断的依据）
+    interrupts = [e["data"] for e in events if e["event"] == "interrupt"]
+    assert interrupts, "打断未发出 interrupt 事件"
+    hit = interrupts[0]
+    assert hit["seq"] == interrupted[0].seq
+    assert hit["text"] == interrupted[0].text
+    assert hit["text"] != "" and len(hit["text"]) < 200  # 确为截断后文本
+    assert any(n.startswith("质询方打断：") for n in hit["side_notes"])
+    assert hit["word_count"] == len(hit["text"])
     # 攻辩：两组各 3 问 3 答
     attack = [s.speaker for s in result.transcript if s.phase == 5]
     assert attack == [
