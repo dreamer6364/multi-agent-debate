@@ -203,7 +203,7 @@ class Verdict(BaseModel):
 | `phase_start` | `{phase, name, actors, duration}` |
 | `speech` | `{seq, speaker, role, camp, text, interrupted, side_notes}` |
 | `timer` | `{type: "warning" \| "time_up", speaker}` |
-| `interrupt` | `{by, reason}` |
+| `interrupt` | `{by, reason, seq, text, side_notes, word_count}`（P1-1：`seq`+`text` 为被打断发言的截断后终稿，前端就地修正已渲染内容） |
 | `phase_end` | `{phase}` |
 | `judging` | `{judges: [...]}`（评委点评中） |
 | `verdict` | `{votes, team_totals, winner, scorecards}` |

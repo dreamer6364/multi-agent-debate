@@ -176,7 +176,7 @@ export:
 | 4 | 驳论 | con-2 → pro-2 | 440 字 |
 | 5 | 攻辩盘问 | (pro-3 盘 ↔ 对方一/二/四辩轮流答) → (con-3 同理) | 每组 440 字 |
 | 6 | 攻辩小结 | pro-3 → con-3 | 330 字 |
-| 7 | 自由辩论 | pro 先，双方交替；单次 ≤110 字（`free_debate_turn_cap`） | 每队 880 字池 |
+| 7 | 自由辩论 | pro 先，双方交替；单次上限 330 字（`free_debate_turn_cap`，短打可三两句、胶着时充分展开） | 每队 1320 字池 |
 | 8 | 总结陈词 | con-4 → pro-4 | 660 字 |
 | 9 | 评委点评 | 3 评委并行（各出 ScoreCard + 点评文本） | — |
 | 10 | 宣判闭幕 | chair（投票、总分、胜方、致谢） | — |
@@ -223,8 +223,8 @@ v2.2 起 phase 1 与 phase 11 属于"仪式骨架"，两种赛制都必须执行
 |---|---|---|
 | 人身攻击 | `conduct.abuse_keywords` 词表命中 | 旁注 `违规：人身攻击`，风度纪律项建议扣 2 分 |
 | 打断超限 | §4.3 | 旁注 + 扣分依据 |
-| 数据造假 | 代码不判定；评委在 weaknesses 中引用具体发言判定 | 该论点作废 + 扣分（评委 rubric 注明） |
-| 回应义务 | 同一问题第 3 次追问仍无对应回答（质询节点内计数） | 旁注 `回避追问`，评委 rubric 注明 |
+| 数据造假 | 分两步（v2.10）：①代码侧线索抓取——精确百分比或"研究表明/据统计"式结论**未标注平台白名单来源** → 旁注 `数据待查：「…」`（`conduct.flag_unverified_claims`；反问对方数据的句子不抓）；②判定权在内容评委——比对上下文与常识后查实虚构才在 weaknesses 点名，该论点作废 + 扣分 | 线索注入评委（非直接扣分项），未查实不得扣分 |
+| 回应义务 | 同一问题第 3 次追问仍无对应回答（质询/攻辩节点内 `FollowupLedger` 聚簇计数，硬逃避=空答或逐字复读） | 旁注 `回避追问`，注入评委纪律记录 |
 
 ### 4.7 评委输出 JSON Schema（`MODEL_OFFICIAL`，温度 0.3，失败重试 2 次）
 
@@ -354,7 +354,7 @@ event: phase_start   data: {"phase": 3, "name": "质询一辩", "actors": ["con-
 event: speech_delta data: {"seq":12,"delta":"对方辩友","attempt":0}   # 逐字流式（v2.1）：仅直播期推送，不落库、断线重连不重放；attempt 变化表示流式重试，前端须重置该 seq 的累积文本
 event: speech        data: {"seq":12,"speaker":"con-2","camp":"con","text":"…","interrupted":false,"side_notes":[],"word_count":86}
 event: timer         data: {"type":"warning|time_up","speaker":"pro-1"}
-event: interrupt     data: {"by":"con-2","reason":"请正面回答"}
+event: interrupt     data: {"by":"con-2","reason":"请正面回答","seq":12,"text":"截断后终稿","side_notes":["质询方打断：请正面回答"],"word_count":42}   # P1-1：seq+终稿供前端就地截断已渲染的该条发言；后端同步修正该行 DB
 event: phase_end     data: {"phase":3}
 event: judging       data: {"judges":["judge-logic","judge-content","judge-expression"]}
 event: judging_progress data: {"stage":"质检|质检 2/4|评审|完成","completed":1,"total":3,"elapsed":42.7}   # v1.9.2 评审心跳（默认 10s 一次）：前端显示"已评议 Xs"，并作卡死自检
