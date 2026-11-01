@@ -11,9 +11,17 @@ from rank_bm25 import BM25Okapi
 from ..schema import Camp, Topic
 from .corpus import EvidenceCard, load_corpus
 
+# 中文高频虚词/连词（BM25 停用词）：本身不携带主题信息，作为查询词只会
+# 凭文档普遍含该词而抬高无关卡的得分。仅收"查询中可能出现的通用虚词"，
+# 不收实词（避免误伤"爱""技术"等主题词）。
+_STOPWORDS = frozenset("与和的了吗呢啊呀吧之乎者也是在有及或对把被从向着就都还又很太更最")
+
 
 def _tokenize(text: str) -> list[str]:
-    return [t for t in jieba.lcut(text) if t.strip()]
+    # BM25 停用词：高频虚词无区分度，只在无关查询下贡献噪声分——
+    # 曾因语料平均长度变化把"与"的分推过低分阈值，令"量子纠缠与黑洞蒸发"
+    # 这类无关查询命中含"与"的社会卡（宁缺毋滥被虚词击穿）。查询与文档对称剔除。
+    return [t for t in jieba.lcut(text) if t.strip() and t not in _STOPWORDS]
 
 
 # 辩题域探测（v1.5：治跨域硬套——商业/科技理论不再被套到情感辩题）
