@@ -1,12 +1,12 @@
 # ISS-005（P2）API 测试共享全局 MySQL `mad_test` + 逐用例 TRUNCATE：无法并行、互踩即假红；数据库口令硬编码入库
 
-**状态**：待修复
+**状态**：✅ 已修复（库按 xdist worker 隔离、口令外置、`pytest-xdist` 入 dev 依赖；验收：`pytest -n 4` 并行 3 次全绿——api 33 passed ×2 + 全量 225 passed ×1；`git grep` 全仓明文口令清零，含 `playwright.config.ts` 同类问题一并修复）
 **位置**：`backend/tests/api/conftest.py:29`（`TEST_DB_URL`）、`:126-146`（`_mysql_clean_db` autouse TRUNCATE）
 
 ## 结论
 
 1. 所有 API 集成测试共用一个**全局 MySQL 库** `mad_test`，每个用例前后 `TRUNCATE` 全表。任何并行执行（pytest-xdist、两个终端同时跑、CI 分片）都会互相清表，产生**与产品无关的假失败**。
-2. 连接串把口令 `12345678mxy` **硬编码并提交进仓库**（conftest.py:29）——即使只是本地测试库口令，也违反"凭据不入库"的工程纪律（与 `.env` 出门禁的约定自相矛盾）。
+2. 连接串把 MySQL 口令**硬编码并提交进仓库**（conftest.py:29，此处以 `root:****` 脱敏）——即使只是本地测试库口令，也违反"凭据不入库"的工程纪律（与 `.env` 出门禁的约定自相矛盾）。同类问题另见 `frontend/playwright.config.ts` 的 E2E 连接串（同一提交修复）。
 
 ## 复现
 
@@ -21,7 +21,7 @@ A 跑 sse05 的同时 B 触发 TRUNCATE，A 侧随即出现 `Duplicate entry 'al
 
 ## 证据
 
-- `conftest.py:29`：`TEST_DB_URL = "mysql+asyncmy://root:12345678mxy@localhost:3306/mad_test?charset=utf8mb4"`
+- `conftest.py:29`（修复前）：`TEST_DB_URL = "mysql+asyncmy://root:****@localhost:3306/mad_test?charset=utf8mb4"`（明文口令）
 - `conftest.py:28` 注释自认："测试库全面切 MySQL（mad_test），用例间 TRUNCATE"
 - 实测：并行双跑出现 `Duplicate entry 'alice'`；同一用例串行结果与并行结果不同（非确定性）。
 

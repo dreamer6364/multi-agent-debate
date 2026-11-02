@@ -1,17 +1,22 @@
 """API 集成测试基建（TEST_PLAN §2.2/§5）。
 
-测试库：SQLite(aiosqlite, tmp 文件)，生产路径为 MySQL（SQLModel 可移植）；
+测试库（ISS-005）：优先 TEST_MYSQL_URL 环境变量；否则复用 backend/.env 的 MYSQL_URL
+（口令不再硬编码入库），库名替换为按 pytest-xdist worker 隔离的 mad_test[_gwN]；
+两者皆无时回落 SQLite（aiosqlite 临时文件）。用例间清表。
 LLM 一律 FakeLLM 剧本回放，不出网。
 SSE 直播测试用真实 uvicorn 线程服务器（ASGITransport 会缓冲完整响应体，无法验证流式语义）。
 """
 from __future__ import annotations
 
+import os
 import socket
+import tempfile
 import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -21,12 +26,41 @@ from sqlalchemy import text
 from sqlmodel import SQLModel
 
 from debate.api.app import create_app
+from debate.core.config import load_env
 from debate.engine.llm.gateway import Gateway
 
 _TZ = ZoneInfo("Asia/Shanghai")
 
-# v2.2：测试库全面切 MySQL（mad_test），用例间 TRUNCATE；SQLite 仅作为可选回落
-TEST_DB_URL = "mysql+asyncmy://root:12345678mxy@localhost:3306/mad_test?charset=utf8mb4"
+# ---- 测试库解析（ISS-005：并行隔离 + 口令外置） ----
+_WORKER = os.environ.get("PYTEST_XDIST_WORKER", "")  # xdist worker 名（gw0/gw1…），无则空
+TEST_DB_NAME = f"mad_test_{_WORKER}" if _WORKER else "mad_test"
+_db_bootstrapped = False
+
+
+def _swap_database(url: str, db_name: str) -> str:
+    """替换 URL 中的库名，保留 scheme/账号/端口/查询参数（口令随来源环境变量，不入库）。"""
+    parts = urlsplit(url)
+    query = parts.query or "charset=utf8mb4"
+    if "charset" not in query:
+        query += "&charset=utf8mb4"
+    return urlunsplit((parts.scheme, parts.netloc, f"/{db_name}" if db_name else "", query, ""))
+
+
+def _resolve_test_db_url() -> str:
+    explicit = os.environ.get("TEST_MYSQL_URL")
+    if explicit:
+        return _swap_database(explicit, TEST_DB_NAME)
+    # 复用后端 .env 的连接配置（与生产同源；.env 已被 .gitignore 排除）
+    load_env(Path(__file__).resolve().parents[2] / ".env")
+    base = os.environ.get("MYSQL_URL")
+    if base:
+        return _swap_database(base, TEST_DB_NAME)
+    suffix = f"_{_WORKER}" if _WORKER else ""
+    return f"sqlite+aiosqlite:///{Path(tempfile.gettempdir()) / f'mad_test{suffix}.db'}"
+
+
+TEST_DB_URL = _resolve_test_db_url()
+IS_MYSQL = TEST_DB_URL.startswith("mysql")
 
 
 class LiveServer:
@@ -124,17 +158,36 @@ def _fake_columns(speeches):
 
 @pytest.fixture(autouse=True)
 async def _mysql_clean_db():
-    """每个用例前：建表 + 清空全部业务表（MySQL mad_test）。"""
+    """每个用例前：建表 + 清空全部业务表。
+
+    ISS-005：库名按 xdist worker 隔离（mad_test / mad_test_gw0…），并行不互踩；
+    MySQL 连接配置来自 TEST_MYSQL_URL 或 backend/.env，仓库内不再出现明文口令。
+    """
+    global _db_bootstrapped
     from sqlalchemy.ext.asyncio import create_async_engine as _cae
     from sqlmodel import SQLModel as _SM
+
+    if IS_MYSQL and not _db_bootstrapped:
+        # 首次运行/新 worker：测试库可能尚不存在，先以无库连接建库
+        admin = _cae(_swap_database(TEST_DB_URL, ""))
+        async with admin.begin() as conn:
+            await conn.execute(text(
+                f"CREATE DATABASE IF NOT EXISTS `{TEST_DB_NAME}` DEFAULT CHARACTER SET utf8mb4"
+            ))
+        await admin.dispose()
+        _db_bootstrapped = True
 
     engine = _cae(TEST_DB_URL)
     async with engine.begin() as conn:
         await conn.run_sync(_SM.metadata.create_all)
-        await conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
-        for t in reversed(_SM.metadata.sorted_tables):
-            await conn.execute(text(f"TRUNCATE TABLE {t.name}"))
-        await conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
+        if IS_MYSQL:
+            await conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
+            for t in reversed(_SM.metadata.sorted_tables):
+                await conn.execute(text(f"TRUNCATE TABLE {t.name}"))
+            await conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
+        else:
+            for t in reversed(_SM.metadata.sorted_tables):
+                await conn.execute(text(f"DELETE FROM {t.name}"))
     yield
     await engine.dispose()
 
@@ -166,7 +219,12 @@ async def register_and_login(client: AsyncClient, username: str = "alice", passw
     return response.json()
 
 
-async def wait_status(client: AsyncClient, debate_id: int, status: str, timeout: float = 15.0) -> dict:
+async def wait_status(client: AsyncClient, debate_id: int, status: str, timeout: float = 30.0) -> dict:
+    """等待场次到达目标状态。
+
+    v2.11：默认 15s→30s——满载机器上单场 FakeLLM 全流程可达 13~14s，15s 阈值造成
+    边界超时的假红（ISS-005 测试基建稳定性；基线代码同样复现，与产品逻辑无关）。
+    """
     import asyncio
 
     loop = asyncio.get_event_loop()
