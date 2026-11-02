@@ -82,38 +82,39 @@ async def create_debate(body: DebateCreateIn, request: Request,
     if body.judges not in (1, 3, 5):
         raise ApiError(422, "VALIDATION_ERROR", "judges 仅允许 1 / 3 / 5")
 
-    if body.custom_topic is not None:
-        ct = body.custom_topic
-        topic_row = TopicRow(
-            owner_id=user.id, title=ct.title,
-            pro_stance=ct.pro_stance or f"支持：{ct.title.split('/')[0].strip()}",
-            con_stance=ct.con_stance or f"支持：{ct.title.split('/')[-1].strip()}",
-            pro_points=ct.pro_points, con_points=ct.con_points,
+    # ISS-001/002：配额检查与落库同一临界区——先查配额，辩题与场次同事务提交；
+    # 任何一步失败整体回滚，既堵 TOCTOU 竞态，也不再留下"429 孤儿辩题"。
+    async with state.service.quota_guard(user.id):
+        if body.custom_topic is None:
+            topic_row = await _load_topic_row(session, body.topic_id)
+            if not topic_row.is_builtin and topic_row.owner_id != user.id:
+                raise ApiError(404, "NOT_FOUND", "辩题不存在")
+        try:
+            await state.service.check_quota(user.id)
+        except QuotaExceeded as exc:
+            raise ApiError(429, exc.code, exc.message) from exc
+
+        if body.custom_topic is not None:
+            ct = body.custom_topic
+            topic_row = TopicRow(
+                owner_id=user.id, title=ct.title,
+                pro_stance=ct.pro_stance or f"支持：{ct.title.split('/')[0].strip()}",
+                con_stance=ct.con_stance or f"支持：{ct.title.split('/')[-1].strip()}",
+                pro_points=ct.pro_points, con_points=ct.con_points,
+            )
+            session.add(topic_row)
+            await session.flush()  # 取得 id；与场次同事务，不单独 commit
+
+        debate = DebateRow(
+            topic_id=topic_row.id, owner_id=user.id, format=body.format, status="pending",
+            cfg_json={
+                "judges": body.judges,
+                "speed_cpm": state.config.procedure.speed_cpm,
+                "phase_durations": state.config.procedure.phases.model_dump(),
+            },
         )
-        session.add(topic_row)
+        session.add(debate)
         await session.commit()
-        await session.refresh(topic_row)
-    else:
-        topic_row = await _load_topic_row(session, body.topic_id)
-        if not topic_row.is_builtin and topic_row.owner_id != user.id:
-            raise ApiError(404, "NOT_FOUND", "辩题不存在")
-
-    try:
-        await state.service.check_quota(user.id)
-    except QuotaExceeded as exc:
-        raise ApiError(429, exc.code, exc.message) from exc
-
-    debate = DebateRow(
-        topic_id=topic_row.id, owner_id=user.id, format=body.format, status="pending",
-        cfg_json={
-            "judges": body.judges,
-            "speed_cpm": state.config.procedure.speed_cpm,
-            "phase_durations": state.config.procedure.phases.model_dump(),
-        },
-    )
-    session.add(debate)
-    await session.commit()
-    await session.refresh(debate)
 
     state.service.start(debate_id=debate.id, topic=_row_to_engine_topic(topic_row),
                         fmt=DebateFormat(body.format))

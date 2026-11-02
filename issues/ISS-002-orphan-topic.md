@@ -1,6 +1,6 @@
 # ISS-002（P1）配额 429 时自建辩题已先落库成孤儿，用户重试即堆积重复辩题
 
-**状态**：待修复
+**状态**：✅ 已修复（回归测试 `test_quota_reject_leaves_no_orphan_topic`；与 ISS-001 同一提交）
 **位置**：`backend/src/debate/api/debates.py:85-95`（custom_topic 插入并 commit）、`:102`（其后才 `check_quota`）
 
 ## 结论

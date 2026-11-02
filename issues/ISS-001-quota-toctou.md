@@ -1,6 +1,6 @@
 # ISS-001（P0）配额"同时 1 场"被 TOCTOU 竞态绕过：并发创建两场都返回 202
 
-**状态**：待修复
+**状态**：✅ 已修复（回归测试 `test_concurrent_create_race_only_one_accepted`）
 **位置**：`backend/src/debate/services/debate_service.py:67-76`（`check_quota`）、`backend/src/debate/api/debates.py:102`（调用点）
 
 ## 结论

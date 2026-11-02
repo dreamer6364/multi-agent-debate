@@ -114,6 +114,49 @@ async def test_concurrent_quota(env, backend_root, tmp_path):
         await client.aclose()
 
 
+async def test_concurrent_create_race_only_one_accepted(env):
+    """ISS-001 回归：同用户**同时**发起两个创建请求，必须恰好一个 202、其余 429。
+
+    修复前 check_quota 只读不锁（TOCTOU），两个请求双双通过检查返回 202。
+    """
+    client = await new_client(env)
+    await register_and_login(client, "alice")
+    results = await asyncio.gather(
+        client.post("/api/debates", json={"topic_id": 1, "format": "lite"}),
+        client.post("/api/debates", json={"topic_id": 1, "format": "lite"}),
+    )
+    codes = [r.status_code for r in results]
+    assert codes.count(202) == 1, f"配额竞态未堵住: {codes}"
+    assert codes.count(429) == 1, f"期望一成一拒: {codes}"
+    rejected = next(r for r in results if r.status_code == 429)
+    assert rejected.json()["code"] == "QUOTA_CONCURRENT"
+    accepted = next(r for r in results if r.status_code == 202)  # 收尾：停掉，避免跨用例残留任务
+    await client.post(f"/api/debates/{accepted.json()['id']}/stop")
+    await wait_status(client, accepted.json()["id"], "stopped")
+    await client.aclose()
+
+
+async def test_quota_reject_leaves_no_orphan_topic(env):
+    """ISS-002 回归：配额 429 时自建辩题不得落库（修复前先插 topic 再查配额，重试即堆积重复）。"""
+    client = await new_client(env)
+    await register_and_login(client, "alice")
+    ct = {"title": "第一场辩题 / 甲乙", "pro_points": "p1", "con_points": "c1",
+          "pro_stance": "正", "con_stance": "反"}
+    first = await client.post("/api/debates", json={"custom_topic": ct, "format": "lite"})
+    assert first.status_code == 202, first.text
+
+    ct2 = dict(ct, title="配额满时的辩题 / 应被回滚")
+    for _ in range(3):  # 模拟用户按提示重试
+        rejected = await client.post("/api/debates", json={"custom_topic": ct2, "format": "lite"})
+        assert rejected.status_code == 429, rejected.text
+
+    topics = (await client.get("/api/topics")).json()
+    titles = [t["title"] for t in (topics if isinstance(topics, list) else topics.get("items", []))]
+    assert "配额满时的辩题 / 应被回滚" not in titles, f"429 留下了孤儿辩题: {titles}"
+    await wait_status(client, first.json()["id"], "finished")  # 收尾：等首场跑完，避免跨用例残留任务
+    await client.aclose()
+
+
 async def test_no_daily_quota(env):
     """v1.3：每日配额已删除——连打多场不再被 429 拦截（仅并发限 1，串行不受限）。"""
     client = await new_client(env)

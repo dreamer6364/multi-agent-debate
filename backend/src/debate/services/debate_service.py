@@ -61,11 +61,16 @@ class DebateService:
         self._tasks: dict[int, asyncio.Task] = {}
         self._cancel_flags: dict[int, dict] = {}
         self._buses: dict[int, EventBus] = {}
+        self._quota_locks: dict[int, asyncio.Lock] = {}  # 按用户串行化配额闸（ISS-001）
 
     # ---- 配额（CONSTRAINTS A5：并发 1 场 + 东八区自然日配额） ----
 
     async def check_quota(self, owner_id: int) -> None:
-        """v1.3 修订：仅并发限制（同时 1 场）；每日场次不限。"""
+        """v1.3 修订：仅并发限制（同时 1 场）；每日场次不限。
+
+        注意：本方法只读不锁，调用方必须持有 `quota_guard(owner_id)` 临界区，
+        否则并发创建会双双通过检查（ISS-001 TOCTOU）。
+        """
         async with self.sessionmaker() as session:
             running = await session.execute(
                 select(func.count()).select_from(DebateRow).where(
@@ -74,6 +79,18 @@ class DebateService:
             )
             if (running.scalar_one() or 0) >= self.config.quota.concurrent_debates_per_user:
                 raise QuotaExceeded("QUOTA_CONCURRENT", "已有进行中的比赛，请稍后再试")
+
+    def quota_guard(self, owner_id: int) -> asyncio.Lock:
+        """创建比赛的配额临界区（ISS-001）：check_quota 与落库必须同持一把锁。
+
+        ARCH A1 单实例假设下进程内锁即关闭 check-then-act 窗口；
+        水平扩展时需换 DB 行锁（SELECT ... FOR UPDATE）或分布式锁，
+        与 EventBus 换 Redis 是同一时机的改造。
+        """
+        lock = self._quota_locks.get(owner_id)
+        if lock is None:
+            lock = self._quota_locks.setdefault(owner_id, asyncio.Lock())
+        return lock
 
     # ---- 生命周期 ----
 
