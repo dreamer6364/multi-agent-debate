@@ -1,6 +1,6 @@
 # ISS-004（P1）Dockerfile：`COPY README.md*` 指向不存在文件（构建必失败），且缺 `COPY knowledge`（容器内首场比赛必崩）
 
-**状态**：待修复（静态取证，测试机 docker daemon 未启动无法实测构建）
+**状态**：✅ 已修复（移除 `README.md*`、补 `COPY knowledge ./knowledge`；本机 docker daemon 未启动，待就绪后 `docker build backend` 复验——所有 COPY 源已逐一确认存在）
 **位置**：`backend/Dockerfile`
 
 ## 结论
