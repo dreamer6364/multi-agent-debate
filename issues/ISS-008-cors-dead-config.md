@@ -1,6 +1,6 @@
 # ISS-008（P2）`CORS_ORIGINS` 为死配置：`.env` 提供该变量，但后端从未挂载 CORSMiddleware
 
-**状态**：待修复（二选一：接线或删除）
+**状态**：✅ 已修复（`create_app` 按 `CORS_ORIGINS` 逗号白名单挂 `CORSMiddleware`，空值不挂=同源部署；白名单 origin 才发放凭据，禁止通配符组合。回归测试 `test_cors_middleware_honors_allowlist`）
 **位置**：`backend/.env`（`CORS_ORIGINS=http://...`）、`backend/src/debate/api/app.py`（无任何 CORS 中间件）
 
 ## 结论

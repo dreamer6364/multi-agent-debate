@@ -80,9 +80,13 @@ def create_app(
 ) -> FastAPI:
     config_file = Path(config_path or os.environ.get("CONFIG_PATH", "config.yaml"))
     config = load_config(config_file)
-    load_env(config_file.parent / ".env")
+    load_env(config_file.parent / ".env")  # override=False：显式环境变量优先
     if config_overrides:
         config = AppConfig.model_validate(deep_merge(config.model_dump(), config_overrides))
+
+    # ISS-008：CORS_ORIGINS 此前是死配置（.env 提供但从未挂中间件）。逗号分隔白名单；
+    # 空 = 不挂中间件（同源/vite proxy 部署，与开发约定一致）。
+    cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
 
     secret = jwt_secret or os.environ.get("JWT_SECRET", "dev-insecure-secret")
     expire_minutes = int(os.environ.get("JWT_EXPIRE_MINUTES", "1440"))
@@ -125,6 +129,17 @@ def create_app(
         await engine.dispose()
 
     app = FastAPI(title="Multi-Agent Debate API", version="0.1.0", lifespan=lifespan)
+    if cors_origins:
+        # 仅白名单 origin 放行且允许携带凭据（Cookie 为 httpOnly；禁止通配符 + credentials 组合）
+        from starlette.middleware.cors import CORSMiddleware
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+            allow_headers=["*"],
+        )
     app.state.svc = state
     register_error_handlers(app)
     app.include_router(auth_router)

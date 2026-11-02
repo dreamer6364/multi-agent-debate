@@ -25,3 +25,34 @@ def test_default_compressor_factory_matches_service_contract(backend_root):
     compressor = build(config, gateway)
     assert callable(compressor)
     assert compressor([]) == {}  # 空输入直接空五栏
+
+
+async def test_cors_middleware_honors_allowlist(backend_root, monkeypatch):
+    """ISS-008 回归：CORS_ORIGINS 显式配置才挂中间件——白名单放行、外来 origin 不发放、空值不挂。"""
+    from httpx import ASGITransport, AsyncClient
+
+    from .conftest import make_app
+
+    monkeypatch.setenv("CORS_ORIGINS", "http://localhost:5173, http://trusted.example")
+    app = make_app(backend_root, None)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+            allowed = await client.get("/api/health", headers={"Origin": "http://localhost:5173"})
+            assert allowed.headers.get("access-control-allow-origin") == "http://localhost:5173"
+            assert allowed.headers.get("access-control-allow-credentials") == "true"
+            denied = await client.get("/api/health", headers={"Origin": "http://evil.example"})
+            assert "access-control-allow-origin" not in denied.headers
+            preflight = await client.options(
+                "/api/debates",
+                headers={"Origin": "http://trusted.example",
+                         "Access-Control-Request-Method": "POST"},
+            )
+            assert preflight.status_code == 200
+            assert preflight.headers.get("access-control-allow-origin") == "http://trusted.example"
+
+    monkeypatch.setenv("CORS_ORIGINS", "")  # 空值 = 同源部署，不挂中间件
+    app2 = make_app(backend_root, None)
+    async with app2.router.lifespan_context(app2):
+        async with AsyncClient(transport=ASGITransport(app=app2), base_url="http://t") as client:
+            resp = await client.get("/api/health", headers={"Origin": "http://localhost:5173"})
+            assert "access-control-allow-origin" not in resp.headers
