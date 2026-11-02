@@ -1,7 +1,8 @@
 """create_app 默认工厂回归：服务层契约 (config, fmt) 必须被满足（生产路径曾被漏测）。"""
 
+import pytest
 
-from debate.api.app import _default_compressor_factory, _default_gateway_factory
+from debate.api.app import _default_compressor_factory, _default_gateway_factory, create_app
 from debate.core.config import load_config, load_env
 from debate.engine.llm.gateway import Gateway
 from debate.engine.schema import DebateFormat
@@ -56,3 +57,27 @@ async def test_cors_middleware_honors_allowlist(backend_root, monkeypatch):
         async with AsyncClient(transport=ASGITransport(app=app2), base_url="http://t") as client:
             resp = await client.get("/api/health", headers={"Origin": "http://localhost:5173"})
             assert "access-control-allow-origin" not in resp.headers
+
+
+def test_jwt_secret_prod_requires_explicit_value(backend_root, monkeypatch):
+    """ISS-009 回归：生产档（DEBATE_ENV=prod）缺 JWT_SECRET 必须拒绝启动（fail-fast）。"""
+    monkeypatch.setenv("JWT_SECRET", "")  # 空值触发"缺失"分支；load_env override=False 不会覆盖
+    monkeypatch.setenv("DEBATE_ENV", "prod")
+    with pytest.raises(RuntimeError, match="JWT_SECRET"):
+        create_app(config_path=backend_root / "config.yaml")
+    # 显式提供则正常启动
+    monkeypatch.setenv("JWT_SECRET", "p" * 40)
+    app = create_app(config_path=backend_root / "config.yaml")
+    assert app.state.svc.jwt_secret == "p" * 40
+
+
+def test_jwt_secret_dev_random_per_start(backend_root, monkeypatch):
+    """ISS-009 回归：开发档缺 JWT_SECRET 不再用固定公开值——每次启动随机生成且互不相同。"""
+    monkeypatch.setenv("JWT_SECRET", "")
+    monkeypatch.delenv("DEBATE_ENV", raising=False)
+    app1 = create_app(config_path=backend_root / "config.yaml")
+    app2 = create_app(config_path=backend_root / "config.yaml")
+    s1, s2 = app1.state.svc.jwt_secret, app2.state.svc.jwt_secret
+    assert s1 != s2, "两次启动密钥相同，仍是固定值"
+    assert len(s1) >= 32 and len(s2) >= 32
+    assert "dev-insecure-secret" not in (s1, s2)

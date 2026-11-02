@@ -1,7 +1,9 @@
 """应用装配（create_app）：配置/DB/引擎依赖注入点，供生产与测试复用（ARCH §2）。"""
 from __future__ import annotations
 
+import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +27,7 @@ from .errors import register_error_handlers
 from .topics import router as topics_router
 
 _TZ = ZoneInfo("Asia/Shanghai")
+logger = logging.getLogger("debate.api")
 
 
 def _default_now() -> datetime:
@@ -88,7 +91,17 @@ def create_app(
     # 空 = 不挂中间件（同源/vite proxy 部署，与开发约定一致）。
     cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
 
-    secret = jwt_secret or os.environ.get("JWT_SECRET", "dev-insecure-secret")
+    # ISS-009：密钥硬化——不再回落内置公开值 dev-insecure-secret（知道默认值即可伪造任意用户会话）。
+    # 生产档（DEBATE_ENV=prod）缺 JWT_SECRET 直接拒绝启动；开发档改用每次启动随机密钥并告警
+    # （重启后会话失效，比固定公开值安全）。显式传入的 jwt_secret（测试注入）永远优先。
+    secret = jwt_secret or os.environ.get("JWT_SECRET")
+    if not secret:
+        if os.environ.get("DEBATE_ENV", "dev").lower() in ("prod", "production"):
+            raise RuntimeError("DEBATE_ENV=prod 时必须设置 JWT_SECRET，拒绝以默认密钥启动")
+        secret = secrets.token_urlsafe(32)
+        logger.warning(
+            "JWT_SECRET 未设置：本次启动使用随机密钥，重启后所有登录会话失效（生产请显式配置）"
+        )
     expire_minutes = int(os.environ.get("JWT_EXPIRE_MINUTES", "1440"))
     engine = make_engine(db_url, base_dir=config_file.parent)
     sessionmaker = make_sessionmaker(engine)

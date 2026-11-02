@@ -1,6 +1,6 @@
 # ISS-009（P2）`JWT_SECRET` 缺省回落到内置 `dev-insecure-secret`：忘配环境变量即可伪造任意用户会话
 
-**状态**：待修复（硬化项）
+**状态**：✅ 已修复（生产档 `DEBATE_ENV=prod` 缺密钥拒绝启动；开发档改每次启动随机密钥 + 告警日志，固定公开值移除。回归测试 `test_jwt_secret_prod_requires_explicit_value` / `test_jwt_secret_dev_random_per_start`）
 **位置**：`backend/src/debate/api/app.py:87`
 
 ## 结论
