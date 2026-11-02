@@ -44,3 +44,8 @@ dist/
 build/
 debate-e2e.db
 third_party/
+
+# ISS-006: database files and debug leftovers must never be committed
+*.db
+*.sqlite
+*_dbg/

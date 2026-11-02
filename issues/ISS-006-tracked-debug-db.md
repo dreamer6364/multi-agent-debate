@@ -1,6 +1,6 @@
 # ISS-006（P2）调试残留 `backend/._sse_dbg/test.db`（SQLite 61KB）被 git 追踪
 
-**状态**：待修复
+**状态**：✅ 已修复（`git rm --cached` + 本地删除；`.gitignore` 新增 `*.db` / `*.sqlite` / `*_dbg/`，`git ls-files "*.db"` 已清零）
 **位置**：`backend/._sse_dbg/test.db`
 
 ## 结论
