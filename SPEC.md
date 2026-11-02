@@ -351,8 +351,8 @@ v2.2 起 phase 1 与 phase 11 属于"仪式骨架"，两种赛制都必须执行
 ```
 id: <speech 事件 = 该条 seq；其余事件 = 全局自增>
 event: phase_start   data: {"phase": 3, "name": "质询一辩", "actors": ["con-2","pro-1"], "budget_words": 330}
-event: speech_delta data: {"seq":12,"delta":"对方辩友","attempt":0}   # 逐字流式（v2.1）：仅直播期推送，不落库、断线重连不重放；attempt 变化表示流式重试，前端须重置该 seq 的累积文本
-event: speech        data: {"seq":12,"speaker":"con-2","camp":"con","text":"…","interrupted":false,"side_notes":[],"word_count":86}
+event: speech_delta data: {"seq":12,"delta":"对方辩友","attempt":0}   # 逐字流式（v2.1）：仅直播期推送，不落库、断线重连不重放；attempt 变化表示流式重试，前端须重置该 seq 的累积文本。主席等工作人员的确定性模板发言（phase 1/11，AGENT_CONSTRAINTS §2）不经流式，不产生 speech_delta
+event: speech        data: {"seq":12,"phase":3,"phase_name":"质询一辩","speaker":"con-2","camp":"con","text":"…","interrupted":false,"side_notes":[],"word_count":86}   # phase/phase_name 为 v2.3 增补：环节戳随条落库/直播，前端筛选与重连归因不依赖"当前 phase"
 event: timer         data: {"type":"warning|time_up","speaker":"pro-1"}
 event: interrupt     data: {"by":"con-2","reason":"请正面回答","seq":12,"text":"截断后终稿","side_notes":["质询方打断：请正面回答"],"word_count":42}   # P1-1：seq+终稿供前端就地截断已渲染的该条发言；后端同步修正该行 DB
 event: phase_end     data: {"phase":3}

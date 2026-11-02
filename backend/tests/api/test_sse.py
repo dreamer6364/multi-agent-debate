@@ -86,9 +86,10 @@ async def test_sse01_full_sequence_and_close(backend_root, tmp_path):
         assert kinds[0] == "status" and events[0]["data"]["status"] == "running"  # 快照
         assert kinds[-1] == "status" and events[-1]["data"]["status"] == "finished"  # 终态后关闭
         phase_starts = [e["data"]["phase"] for e in events if e["event"] == "phase_start"]
-        assert phase_starts == [2, 4, 7, 8, 9, 10]
+        # ISS-003：v2.2 起 lite 执行 phase 1、2、4、7、8、9、10、11（仪式骨架，SPEC §4.1）
+        assert phase_starts == [1, 2, 4, 7, 8, 9, 10, 11]
         phase_ends = [e["data"]["phase"] for e in events if e["event"] == "phase_end"]
-        assert phase_ends == [2, 4, 7, 8, 9, 10]
+        assert phase_ends == [1, 2, 4, 7, 8, 9, 10, 11]
         speech_seqs = [e["data"]["seq"] for e in events if e["event"] == "speech"]
         assert speech_seqs == sorted(speech_seqs) and len(speech_seqs) == len(set(speech_seqs))
         judging = [e for e in events if e["event"] == "judging"]
@@ -117,7 +118,11 @@ async def test_sse02_speech_event_schema(backend_root, tmp_path):
         speeches = [e for e in events if e["event"] == "speech"]
         assert speeches
         for e in speeches:
-            assert set(e["data"].keys()) == {"seq", "speaker", "camp", "text", "interrupted", "side_notes", "word_count"}
+            # ISS-003：v2.3 增补 phase/phase_name 环节戳（前端 ArenaPage 据此筛主席开场）
+            assert set(e["data"].keys()) == {
+                "seq", "speaker", "camp", "text", "interrupted", "side_notes", "word_count",
+                "phase", "phase_name",
+            }
             assert e["id"] == e["data"]["seq"]  # id = seq（SPEC §6.2）
     finally:
         backend.release.set()
@@ -182,7 +187,12 @@ async def test_sse05_failed_debate_terminal(backend_root, tmp_path):
 
         events = await collect(client, debate_id)
         speeches = [e for e in events if e["event"] == "speech"]
-        assert all(s["data"]["text"] == "[系统] 该辩手超时未发言" for s in speeches)
+        # ISS-003：LLM 全故障时辩手发言必须是降级占位；主席（phase 1）走确定性模板
+        # （officials.py _keynote_fallback/_opening_fallback），不依赖 LLM，文本天然非占位。
+        debater = [s for s in speeches if s["data"]["speaker"] != "chair"]
+        chair = [s for s in speeches if s["data"]["speaker"] == "chair"]
+        assert debater and all(s["data"]["text"] == "[系统] 该辩手超时未发言" for s in debater)
+        assert chair and all(s["data"]["text"] != "[系统] 该辩手超时未发言" for s in chair)
         status = events[-1]
         assert status["event"] == "status" and status["data"]["status"] == "failed"
         assert "熔断" in status["data"]["error"]
@@ -251,13 +261,22 @@ async def test_sse07_speech_delta_accumulates_to_final(backend_root, tmp_path):
             assert seq in finals, f"seq {seq} 有 delta 但无定稿"
             assert accumulated.startswith(finals[seq]), f"seq {seq} 定稿不是 delta 累积的前缀"
             checked += 1
-        assert checked >= 5  # lite 全场发言均走了流式
+        assert checked >= 5  # 除主席确定性发言外，LLM 发言均走流式（ISS-003）
 
         # delta 排在对应定稿之前（直播顺序语义）
         order = [e["data"]["seq"] for e in events if e["event"] in ("speech_delta", "speech")]
         assert order.index(1) < len(order) - order[::-1].index(1) - 1 or True  # 顺序宽松校验
-        first_final_idx = next(i for i, e in enumerate(events) if e["event"] == "speech" and e["data"]["seq"] == 1)
-        assert any(e["event"] == "speech_delta" and e["data"]["seq"] == 1 for e in events[:first_final_idx])
+        # ISS-003：主席发言是代码模板直出（gateway.complete，不经流式），seq 1 天然无 delta——
+        # 改为校验首条 LLM 发言（非 chair）定稿前必有其 delta。
+        first_llm_idx = next(
+            i for i, e in enumerate(events)
+            if e["event"] == "speech" and e["data"]["speaker"] != "chair"
+        )
+        first_llm_seq = events[first_llm_idx]["data"]["seq"]
+        assert any(
+            e["event"] == "speech_delta" and e["data"]["seq"] == first_llm_seq
+            for e in events[:first_llm_idx]
+        ), f"首条 LLM 发言 seq={first_llm_seq} 定稿前无 delta"
     finally:
         backend.release.set()
         await client.aclose()
