@@ -1,5 +1,4 @@
 """辩题端点集成测试（TEST_PLAN IT-TOP-01~04，SPEC §5.2）。"""
-import pytest
 
 from .conftest import new_client, register_and_login, wait_status
 

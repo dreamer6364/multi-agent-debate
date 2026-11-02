@@ -9,7 +9,7 @@ from ..agents.context import build_debater_messages, estimate_tokens
 from ..rag.retriever import detect_topic_domain, render_evidence
 from ..llm.gateway import LLMExhausted, LLMResult, strip_tool_artifacts
 from ..procedure import PHASE_NAMES, PHASE_NUMBERS, minutes_for
-from ..runtime import DebateAborted, DebateCancelled, DebateContext
+from ..runtime import DebateAborted, DebateContext
 from ..schema import Camp, Speech
 from ..sim.conduct import (
     FollowupLedger,
@@ -21,6 +21,16 @@ from ..sim.conduct import (
     strip_forbidden_format,
     strip_interrupt_marker,
     strip_stage_tags,
+)
+from ..sim.digest import Digest, extract_excerpts, merge_digest, render_digest
+from ..sim.interrupt import InterruptLedger, apply_interrupt_to_answer, parse_interrupt
+from ..sim.timer import (
+    NOTE_TIME_UP,
+    NOTE_WARNING,
+    FreeDebateClock,
+    TurnClock,
+    truncate_to_sentence,
+    words_for,
 )
 from ..tools.agent_tools import run_debater_with_tools, tools_enabled_for
 import re as _re
@@ -129,17 +139,6 @@ def _usage_line(ctx, camp_cards) -> str:
     if not over:
         return ""
     return f"【引用纪律】以下来源本场已被引用≥2次，请勿再用：{'、'.join(dict.fromkeys(over))}。"
-
-from ..sim.digest import Digest, extract_excerpts, merge_digest, render_digest
-from ..sim.interrupt import InterruptLedger, apply_interrupt_to_answer, parse_interrupt
-from ..sim.timer import (
-    NOTE_TIME_UP,
-    NOTE_WARNING,
-    FreeDebateClock,
-    TurnClock,
-    truncate_to_sentence,
-    words_for,
-)
 
 
 def _timer_events(ctx: DebateContext, speaker: str | None, notes: list[str]) -> None:
@@ -307,7 +306,7 @@ def _ask(
                 max_tokens=int(cap_words * 1.6) + 64,
             )
         ctx.degradation_streak = 0
-    except LLMExhausted as exc:
+    except LLMExhausted:
         ctx.record_degradation()
         ctx.emit("error", message="LLM 降级：该辩手超时未发言")
         placeholder = "[系统] 该辩手超时未发言"

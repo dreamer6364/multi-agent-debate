@@ -1,6 +1,6 @@
 # ISS-007（P2）ruff 共 176 处违规未清理，含 `runtime.py` 3 处 F821 `Any` 未导入（mypy 必挂）等真实缺陷信号
 
-**状态**：待修复
+**状态**：✅ 已修复（`ruff check src tests` = 0；F821 补 `Any` 导入、F401×32 清理、F841×4 人工复核删除、phases.py 中段导入上移；`[tool.ruff.lint] select` 显式钉住 E4/E7/E9/F——ruff 0.17 默认规则扩张不再静默制造债务，扩规则须走评审。全量 pytest 225 passed）
 **位置**：`backend/src`（129 处）+ `backend/tests`；重点 `src/debate/engine/runtime.py:35,44,45`
 
 ## 结论

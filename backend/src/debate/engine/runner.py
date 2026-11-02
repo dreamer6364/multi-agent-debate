@@ -14,7 +14,6 @@ from .rag.retriever import EvidenceRetriever
 from .rag.websearch import resolve_provider, search_as_cards
 from .runtime import DebateAborted, DebateCancelled, DebateContext
 from .schema import Camp, DebateFormat, ScoreCard, Speech, Topic, Verdict
-from .sim.digest import Digest
 
 
 @dataclass

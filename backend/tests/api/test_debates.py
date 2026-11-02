@@ -1,18 +1,15 @@
 """比赛端点集成测试（TEST_PLAN IT-DEB/IT-SPC/SSE 前置/AC-10~12，SPEC §5.2）。"""
 import asyncio
 
-import pytest
 
 from .conftest import (
     BlockingBackend,
-    fake_gateway_factory,
     make_app,
     new_client,
     register_and_login,
     wait_status,
 )
 from debate.engine.llm.gateway import Gateway
-from debate.engine.schema import Camp
 from httpx import ASGITransport, AsyncClient
 
 

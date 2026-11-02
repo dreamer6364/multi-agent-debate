@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlmodel import SQLModel, select
 
@@ -21,7 +20,6 @@ from debate.engine.runner import DebateResult
 from debate.engine.schema import Camp, DebateFormat, ScoreCard, Speech, Topic, Verdict
 from debate.services import debate_service as service_module
 from debate.services.debate_service import DebateService
-from debate.services.event_bus import EventBus
 
 TOPIC = Topic(
     topic_id="t-reg", title="人工智能时代，人类应该更依赖技术 / 更保持警惕",

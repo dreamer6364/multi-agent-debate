@@ -37,7 +37,6 @@ def run_config(backend_root):
 
 
 def test_full_debate_reaches_terminal_state(tmp_path, assets_root, backend_root, run_config, monkeypatch):
-    from tests.unit.test_service_job import TOPIC
 
     async def main():
         engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'e2e.db'}")

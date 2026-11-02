@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Any, Callable
 
 from .llm.gateway import Gateway
 from .rag.corpus import EvidenceCard

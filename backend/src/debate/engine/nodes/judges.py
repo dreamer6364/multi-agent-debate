@@ -223,7 +223,6 @@ def make_judging_node(ctx: DebateContext):
         qc_done = threading.Event()
         qc_holder: dict = {"ok": False, "outcome": None}
         qc_harvested = False
-        qc_started = time.monotonic()
 
         def qc_worker() -> None:
             if qc_stream is not None:

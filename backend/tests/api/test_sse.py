@@ -6,7 +6,6 @@
 import asyncio
 import json
 
-import pytest
 
 from debate.engine.llm.gateway import Gateway
 from httpx import AsyncClient

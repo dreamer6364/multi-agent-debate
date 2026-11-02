@@ -13,7 +13,7 @@ import socket
 import tempfile
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlsplit, urlunsplit
@@ -23,7 +23,6 @@ import pytest
 import uvicorn
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from sqlmodel import SQLModel
 
 from debate.api.app import create_app
 from debate.core.config import load_env

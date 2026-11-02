@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from ..procedure import PHASE_NUMBERS
-from ..schema import CAMP_CN, Camp, DebateFormat, ScoreCard, Speech, Verdict
+from ..schema import CAMP_CN, Camp, DebateFormat, Verdict
 from ..sim.timer import NOTE_TIME_UP
 
 _JUDGE_CN = {"judge-logic": "逻辑评委", "judge-content": "内容评委", "judge-expression": "表达评委"}

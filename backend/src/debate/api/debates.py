@@ -13,11 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import func, select
 
 from ..db.models import DebateRow, ScorecardRow, SpeechRow, TopicRow, iso_cn
-from ..engine.render.markdown import render_scorecard_md, render_transcript_md
+from ..engine.render.markdown import render_transcript_md
 from ..engine.render.html import render_report_html
 from ..engine.render.xlsx import render_scorecard_xlsx
 from ..engine.runner import DebateResult
-from ..engine.schema import CAMP_CN, Camp, DebateFormat, ScoreCard, Speech, Topic, Verdict
+from ..engine.schema import Camp, DebateFormat, ScoreCard, Speech, Topic, Verdict
 from ..services.debate_service import QuotaExceeded
 from .deps import AppState, get_current_user, get_session, get_state
 from .errors import ApiError

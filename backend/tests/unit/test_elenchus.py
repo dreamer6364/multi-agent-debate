@@ -123,7 +123,6 @@ def test_judge_context_machine_analysis_position(assets_root):
 
 def test_mcp_stdio_client_protocol(tmp_path, monkeypatch):
     """MCP 模式：stdio JSON-RPC 客户端协议正确性（用本地假 server 验证，不依赖真 elenchus mcp）。"""
-    import json as _json
     import subprocess
     import sys
     import textwrap

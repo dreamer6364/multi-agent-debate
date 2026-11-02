@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlmodel import select
 
 from ..core.config import AppConfig, deep_merge, load_config, load_env
-from ..db.models import DebateRow, TopicRow, now_cn
+from ..db.models import DebateRow, TopicRow
 from ..db.session import init_db, make_engine, make_sessionmaker
 from ..engine.agents.loader import load_agents, load_topics
 from ..engine.llm.gateway import Gateway, extra_body_from_env

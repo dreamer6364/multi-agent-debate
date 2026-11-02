@@ -9,11 +9,10 @@ from datetime import datetime
 from io import BytesIO
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
+from openpyxl.styles import Font, PatternFill
 
 from ..schema import CAMP_CN, Camp, DebateFormat
-from .markdown import _budget_suffix, role_display
+from .markdown import role_display
 
 _BOLD = Font(bold=True)
 _HEADER_FILL = PatternFill("solid", fgColor="E6E9F5")

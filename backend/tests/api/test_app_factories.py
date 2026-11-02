@@ -1,7 +1,5 @@
 """create_app 默认工厂回归：服务层契约 (config, fmt) 必须被满足（生产路径曾被漏测）。"""
-from pathlib import Path
 
-import pytest
 
 from debate.api.app import _default_compressor_factory, _default_gateway_factory
 from debate.core.config import load_config, load_env

@@ -31,7 +31,6 @@ class ToolCallingBackend:
         self.executed: list[tuple[str, dict[str, Any]]] = []
 
     def chat_with_tools(self, messages, *, tools, execute, tier, temperature, max_tokens, max_rounds):
-        convo = list(messages)
         for _ in range(max_rounds + 1):
             self.rounds += 1
             if self.rounds == 1:

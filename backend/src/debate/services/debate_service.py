@@ -22,7 +22,7 @@ from ..db.models import DebateRow, ScorecardRow, SpeechRow
 from ..engine.agents.loader import AgentSpec
 from ..engine.llm.gateway import Gateway
 from ..engine.runner import DebateResult, run_debate
-from ..engine.schema import CAMP_CN, Camp, DebateFormat, Speech, Topic
+from ..engine.schema import Camp, DebateFormat, Speech, Topic
 from .event_bus import EventBus
 
 logger = logging.getLogger("debate.service")

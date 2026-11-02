@@ -50,3 +50,9 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
+
+[tool.ruff.lint]
+# ISS-007：显式钉住规则集。ruff 0.17 起默认规则大幅扩张（ANN/BLE/PERF/RUF 等并非本项目
+# 所选），工具升级不应静默制造 176 处"债务"；采用 ruff 传统默认集 E4/E7/E9/F 并保持清零，
+# 后续要扩规则须在本表显式添加、逐条评审。
+select = ["E4", "E7", "E9", "F"]

@@ -185,9 +185,7 @@ def test_evidence_usage_accounting_in_instruction(assets_root):
     from debate.engine.nodes.phases import _book_names, _usage_line
     from debate.engine.rag.retriever import EvidenceRetriever
     from debate.engine.runtime import DebateContext
-    from debate.core.config import load_config
 
-    config = load_config(assets_root / "config.yaml")
     ctx = DebateContext.__new__(DebateContext)
     ctx.evidence_usage = {}
     r = EvidenceRetriever.from_dir(assets_root / "knowledge")

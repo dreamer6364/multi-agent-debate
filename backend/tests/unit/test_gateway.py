@@ -189,7 +189,7 @@ def test_parse_text_tool_calls_none_when_clean():
 
 def test_strip_tool_artifacts_removes_leak():
     assert strip_tool_artifacts(BUG_SHAPE) == ""
-    leaked = f"search_evidence\n<arg_key>query</arg_key>\n<arg_value>测试</arg_value>\n</tool_call>"
+    leaked = "search_evidence\n<arg_key>query</arg_key>\n<arg_value>测试</arg_value>\n</tool_call>"
     assert strip_tool_artifacts(leaked) == ""
     mixed = "我方认为技术是人的延伸。\n" + BUG_SHAPE
     assert strip_tool_artifacts(mixed) == "我方认为技术是人的延伸。"

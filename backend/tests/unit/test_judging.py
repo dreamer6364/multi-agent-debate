@@ -351,7 +351,6 @@ def test_abstain_cards_get_rescued_commentary(monkeypatch):
 def test_judging_harvests_streaming_qc(monkeypatch):
     """ctx.qc 存在时：评审不走批量分析（analyze_speeches_detailed 不许被调），
     join 等待从流式 QC harvest 拿标注注入逻辑评委，并保证 machine_marks 落入 state。"""
-    from debate.engine.nodes import judges as judges_module
     from debate.engine.tools import elenchus as elenchus_module
 
     batch_calls: list[int] = []

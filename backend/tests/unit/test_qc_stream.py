@@ -1,10 +1,8 @@
 """流式质检（v2.8.1）：边辩边检、评审阶段收割、确定性复读检测。"""
 from __future__ import annotations
 
-import threading
 import time
 
-import pytest
 
 from debate.engine.schema import Camp, Speech
 from debate.engine.tools.qc_stream import StreamingQC, repetition_ratio
