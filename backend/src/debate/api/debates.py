@@ -367,12 +367,20 @@ async def stream_debate(debate_id: int, request: Request, after_seq: int = 0,
         live_queue = bus.subscribe() if (bus is not None and not terminal and not bus.closed) else None
         try:
             last_seq = after_seq
+            current_status, current_error = debate.status, debate.error
             own_session = state.sessionmaker()
             try:
                 rows = (await own_session.execute(
                     select(SpeechRow).where(SpeechRow.debate_id == debate_id, SpeechRow.seq > after_seq)
                     .order_by(SpeechRow.seq)
                 )).scalars().all()
+                # ISS-012 BE-7：从入口读状态到重放完 DB 之间，引擎可能恰好收尾。
+                # 重读一次再决定快照，避免把陈旧 running 发给刚重连的客户端后流就结束。
+                latest = (await own_session.execute(
+                    select(DebateRow.status, DebateRow.error).where(DebateRow.id == debate_id)
+                )).first()
+                if latest is not None:
+                    current_status, current_error = latest[0], latest[1]
             finally:
                 await own_session.close()
             for row in rows:
@@ -383,13 +391,14 @@ async def stream_debate(debate_id: int, request: Request, after_seq: int = 0,
                     "side_notes": list(row.side_notes or []),
                     "word_count": row.word_count, "phase": row.phase, "phase_name": row.phase_name,
                 }})
-            # 2) 快照：终态直接收尾；进行中补 status + 最近 phase_start
-            if terminal or bus is None or live_queue is None:
+            # 2) 快照：终态（含重读后刚终态）/ 总线已关 → 直接收尾；进行中补 status + 最近 phase_start
+            terminal_now = current_status in ("finished", "failed", "stopped")
+            if terminal_now or bus is None or live_queue is None or bus.closed:
                 yield _sse({"event": "status", "id": (bus.allocate_id() if bus else None),
-                            "data": {"status": debate.status, "error": debate.error}})
+                            "data": {"status": current_status, "error": current_error}})
                 return
             yield _sse({"event": "status", "id": bus.allocate_id(),
-                        "data": {"status": debate.status, "error": None}})
+                        "data": {"status": current_status, "error": None}})
             if bus.last_phase_start:
                 yield _sse({"event": "phase_start", "id": bus.allocate_id(),
                             "data": bus.last_phase_start})

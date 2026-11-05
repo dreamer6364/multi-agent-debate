@@ -58,6 +58,9 @@ interface DebateLiveState {
   reset: () => void;
 }
 
+/** 金句在 store 中的条数上限（后端 max_total 默认 16，留出 4 倍余量） */
+const MAX_GOLDEN_QUOTES = 64;
+
 const INITIAL = {
   status: null,
   error: null,
@@ -128,6 +131,10 @@ export const useDebateStore = create<DebateLiveState>((set) => ({
   applyDelta: (payload) =>
     set((state) => {
       if (state.speeches.some((s) => s.seq === payload.seq)) return {}; // 定稿已到，迟到 delta 丢弃
+      // FE-1（ISS-012）：seq 单调守卫——服务端放弃某条发言且流已推进后，迟到旧 seq 的
+      // delta 会重建打字卡顶掉当前内容（重放/代理乱序场景）。lastSeq 与当前打字卡都不可回退。
+      if (payload.seq < state.lastSeq) return {};
+      if (state.streaming && payload.seq < state.streaming.seq) return {};
       const current = state.streaming;
       const sameStream =
         current !== null &&
@@ -195,7 +202,11 @@ export const useDebateStore = create<DebateLiveState>((set) => ({
     set((state) => {
       const norm = (q: GoldenQuote) => q.quote.replace(/[\s，。、；：？！"'“”‘’（）()《》<>【】\[\]·…—\-,.:;?!]+/g, "").toLowerCase();
       const fresh = quotes.filter((q) => !state.goldenQuotes.some((x) => norm(x) === norm(q)));
-      return fresh.length ? { goldenQuotes: [...state.goldenQuotes, ...fresh].sort((a, b) => a.seq - b.seq) } : {};
+      if (!fresh.length) return {};
+      // FE-3（ISS-012）：前端也设上限（后端 max_total 默认 16，此处留出余量），
+      // 后端放宽或异常全量补发时不会让 store 无界增长；按 seq 排序后保留最新的一批。
+      const merged = [...state.goldenQuotes, ...fresh].sort((a, b) => a.seq - b.seq);
+      return { goldenQuotes: merged.slice(-MAX_GOLDEN_QUOTES) };
     }),
   setStatus: (status, error = null) => set({ status, error }),
   setConnected: (connected) => set({ connected }),

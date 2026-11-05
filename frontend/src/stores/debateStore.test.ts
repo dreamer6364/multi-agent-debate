@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import type { GoldenQuote } from "../api/types";
 import { useDebateStore } from "./debateStore";
 
 const D = (seq: number, delta: string, attempt = 0, speaker = "pro-1") =>
@@ -117,6 +118,36 @@ describe("debateStore 打断实时修正（P1-1）", () => {
     s.applyInterrupt({ by: "con-2", reason: "请正面回答", seq: 4, text: "前半句。", word_count: 4 });
     const st = useDebateStore.getState().streaming!;
     expect(st.text).toBe("前半句。");
+  });
+});
+
+describe("debateStore ISS-012 边界守卫（v2.9.5）", () => {
+  beforeEach(() => useDebateStore.getState().reset());
+
+  it("FE-1 迟到旧 seq 的 delta 不回退打字卡", () => {
+    const s = useDebateStore.getState();
+    s.applySpeech({ seq: 3, speaker: "pro-1", camp: "pro", text: "已定稿", interrupted: false, side_notes: [] });
+    s.applyDelta(D(4, "新发言"));
+    s.applyDelta(D(2, "陈旧")); // seq < lastSeq：丢弃
+    expect(useDebateStore.getState().streaming?.text).toBe("新发言");
+    s.applyDelta(D(5, "", 0, "con-1")); // 流推进到新发言
+    s.applyDelta(D(4, "回退")); // seq 未落后 lastSeq，但落后当前打字卡：同样丢弃
+    expect(useDebateStore.getState().streaming?.seq).toBe(5);
+    expect(useDebateStore.getState().streaming?.text).toBe("");
+  });
+
+  it("FE-3 金句归一化去重且条数有上限", () => {
+    const q = (seq: number, quote: string): GoldenQuote => ({
+      seq, camp: "pro", speaker: "pro-1", phase_name: "自由辩论",
+      quote, comment: "点评", kind: "逻辑锋利",
+    });
+    const s = useDebateStore.getState();
+    s.applyGoldenQuotes([q(1, "第一句")]);
+    s.applyGoldenQuotes([q(1, "第一句"), q(2, "第二句")]); // 重连补发重叠
+    expect(useDebateStore.getState().goldenQuotes).toHaveLength(2);
+    s.applyGoldenQuotes(Array.from({ length: 100 }, (_, i) => q(i + 10, `金句-${i}`)));
+    expect(useDebateStore.getState().goldenQuotes.length).toBeLessThanOrEqual(64);
+    expect(useDebateStore.getState().goldenQuotes.length).toBeGreaterThan(0);
   });
 });
 

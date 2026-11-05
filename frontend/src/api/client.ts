@@ -84,10 +84,29 @@ export async function getDebates(params?: {
   return (await api.get("/debates", { params })).data;
 }
 
+/** 单场补拉的分页上限保护：后端异常 has_more 恒 true 时也不至于无限请求 */
+const MAX_SPEECH_PAGES = 20;
+
+/**
+ * FE-2（ISS-012）：后端单页上限 500 且返回 has_more，按游标循环拉全。
+ * 此前固定拉一页，超过 500 条发言的归档回看会静默截断。
+ */
 export async function getSpeeches(id: number | string, afterSeq = 0): Promise<SpeechPage> {
-  return (await api.get<SpeechPage>(`/debates/${id}/speeches`, {
-    params: { after_seq: afterSeq, limit: 500 },
-  })).data;
+  const items: SpeechPage["items"] = [];
+  let cursor = afterSeq;
+  for (let page = 0; page < MAX_SPEECH_PAGES; page += 1) {
+    const chunk = (await api.get<SpeechPage>(`/debates/${id}/speeches`, {
+      params: { after_seq: cursor, limit: 500 },
+    })).data;
+    items.push(...chunk.items);
+    if (!chunk.has_more || chunk.items.length === 0) {
+      return { items, has_more: false };
+    }
+    const last = chunk.items[chunk.items.length - 1].seq;
+    if (last <= cursor) break; // 游标未推进：终止而非死循环
+    cursor = last;
+  }
+  return { items, has_more: true };
 }
 
 /** v2.5：逐轮图快照（归档回看时按版本翻看历史图） */

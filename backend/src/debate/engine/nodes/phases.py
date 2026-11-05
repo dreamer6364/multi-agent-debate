@@ -260,6 +260,7 @@ def _ask(
         recent_k=config.context.recent_speeches,
         max_input_tokens=config.context.max_input_tokens,
     )
+    holder = {"attempt": 0, "streamed": False}
     try:
         if tools_enabled_for(ctx, phase_key):
             # 工具循环路径（v1.8）：非流式，LLM 可先调工具取材/自检再输出正文；
@@ -279,7 +280,7 @@ def _ask(
             ctx.degradation_streak = 0
         elif ctx.on_delta is not None:
             # 流式路径（v2.1 speech_delta）：边生成边推送；attempt 变化先发重置信号（delta=""）
-            holder = {"attempt": 0}
+            holder["streamed"] = True
 
             def _note_attempt(attempt: int) -> None:
                 holder["attempt"] = attempt
@@ -316,6 +317,10 @@ def _ask(
         )
     text, _ = strip_forbidden_format(result.text.strip())
     if _looks_like_json(text):
+        # ISS-012 BE-4：流式分支已把原始 JSON 逐 chunk 推给前端，重试/降级前先发
+        # attempt+1 的重置信号（delta=""）清空打字卡，避免脏文本与终稿不一致。
+        if ctx.on_delta is not None and holder["streamed"]:
+            ctx.on_delta(seq, "", holder["attempt"] + 1, speaker, spec.camp.value)
         # v2.9.1 格式防线：带纠正指令重试一次；仍输出 JSON 则降级占位，绝不上屏原始数据
         retry_messages = build_debater_messages(
             spec=spec, topic=ctx.topic, digest_text=digest_text, recent=recent,
@@ -376,6 +381,11 @@ def make_monologue_node(phase_key: str, ctx: DebateContext):
         budget = words_for(minutes_for(phase_key, ctx.config), ctx.config.procedure.speed_cpm)
         ctx.emit("phase_start", phase=phase, name=phase_name,
                  actors=list(MONOLOGUE_SPEAKERS[phase_key]), budget_words=budget)
+        if budget <= 0:
+            # ISS-012 BE-6：环节时长配 0 = 该环节不发言。保留成对的环节戳维持时间线，
+            # 但不调 LLM、不产 0 字发言；此前 cap_words<=0 会直接 DebateAborted 熔断整场。
+            ctx.emit("phase_end", phase=phase)
+            return {"transcript": base, "digest": state["digest"]}
         for speaker in MONOLOGUE_SPEAKERS[phase_key]:
             ctx.check_cancel()
             clock = TurnClock(budget, ctx.config.procedure.speed_cpm)
@@ -553,6 +563,8 @@ def make_free_node(ctx: DebateContext):
             speaker = FREE_ROTATION[camp][rotation_index[camp] % len(FREE_ROTATION[camp])]
             rotation_index[camp] += 1
             cap = min(clock.turn_cap_words, clock.pools[camp].remaining)
+            if cap <= 0:  # ISS-012 BE-6：单轮上限/时间池配 0 时跳过该轮，不熔断整场
+                break
             previous = [sp.text for sp in base + new if sp.speaker == speaker and sp.phase == phase]
             speech = _ask(
                 ctx, speaker=speaker, phase=phase, phase_name=phase_name,

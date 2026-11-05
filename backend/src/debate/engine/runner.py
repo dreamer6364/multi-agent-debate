@@ -146,6 +146,12 @@ def run_debate(
             golden_quotes=drain_golden(1.0),
             usage=dict(gateway.usage),
         )
+    except Exception:
+        # ISS-012 BE-5：graph.invoke 抛未预期异常时同样收割已完成的金句——
+        # on_quotes 回调会先把它们推上 SSE（重连快照保留），否则 finally 的 close()
+        # 连 future 一起丢弃，直播端永远看不到这些已摘出的句子。
+        drain_golden(1.0)
+        raise
     finally:
         if qc_stream is not None:
             qc_stream.close()

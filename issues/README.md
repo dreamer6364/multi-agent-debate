@@ -3,6 +3,7 @@
 > 测试人角色产出：系统性测试（功能 / 并发 / 安全 / 部署 / 静态质量）发现的问题，按优先级排序。
 > 测试日期：2026-11-01；v2.9.4 复核：2026-11-05。基线：main @ `2310cbd`（后端 pytest 219 passed + 4 既有失败；前端 vitest 35 passed、tsc 0、vite build 0）。
 > v2.9.4 全项目体检复核结果：后端 `pytest tests/` **233 passed**（含 SSE 7/7，代理劫持已修）、`ruff check src tests` 0；前端 `vitest run` 35 passed、`tsc --noEmit` 0、`vite build` 0。
+> v2.9.5（ISS-012 全 10 项收口）复核结果：后端 **241 passed**（新增 8 项回归）、`ruff` 0；前端 `vitest run` **40 passed**（新增 5 项回归）、`tsc --noEmit` 0、`vite build` 0。ISS-001~013 全部关闭。
 
 ## 优先级定义
 
@@ -28,7 +29,7 @@
 | [ISS-009](ISS-009-jwt-default-secret.md) | P2 | 已修 | `JWT_SECRET` 缺省回落到内置 `dev-insecure-secret`：忘配环境变量即可伪造任意用户会话 | `api/app.py:87` |
 | [ISS-010](ISS-010-bundle-size.md) | P3 | 已修 | 前端单 chunk 1.17MB（gzip 374KB），超 Vite 500kB 告警线 | `frontend/dist` |
 | [ISS-011](ISS-011-stop-finalize-race.md) | P3 | 已修（v2.9.4） | stop 与终态落库竞态：`_write_final` 无条件覆盖 status | `services/debate_service.py:383` |
-| [ISS-012](ISS-012-review-residual-p3.md) | P3 | 登记待议 | v2.9.4 全项目体检遗留低危项（10 条语义/边界瑕疵，无功能错误） | 见文档 |
+| [ISS-012](ISS-012-review-residual-p3.md) | P3 | 已修（v2.9.5） | v2.9.4 全项目体检遗留低危项（10 条语义/边界瑕疵，无功能错误） | 见文档 |
 | [ISS-013](ISS-013-sse-tests-proxy-hijack.md) | P1-测试基建 | 已修（v2.9.4） | SSE 集成测试被系统代理劫持：长挂的 7 个 `test_sse` 失败根因 | `tests/api/conftest.py:210` |
 
 ## 测试通过项（无问题记录，防止重复排查）

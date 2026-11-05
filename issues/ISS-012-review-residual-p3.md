@@ -1,6 +1,6 @@
 # ISS-012（P3）v2.9.4 全项目 bug 体检遗留低危项清单（代码审查发现，未修）
 
-**状态**：登记待议（均为 P3 语义/边界瑕疵，无功能错误）
+**状态**：已修复（2026-11-05，v2.9.5；原为登记待议的 10 条 P3 语义/边界瑕疵）
 **来源**：2026-11-05 全项目体检（双 Explore 代码审查 + 全量测试）
 
 ## 后端
@@ -49,3 +49,22 @@ speech 事件整体替换故无感，但 delta 累积路径存在脏文本残留
 
 ### FE-3 store 的 goldenQuotes/swimlane 无上限（当前受后端封顶约束，无实害）
 golden 受 max_total=16 封顶；swimlane 整份替换。仅在未来放宽后端上限时需重估。
+
+## 修复记录（2026-11-05，v2.9.5）
+
+| 编号 | 修法 | 落点 |
+|------|------|------|
+| BE-1 | `Gateway._add_usage()` 统一在 `_usage_lock` 内累加，替换 6 处 `dict +=` | `engine/llm/gateway.py` |
+| BE-2 | `_buses` 在任务完成后延迟 60s（重连补发窗口）回收；`_quota_locks` 改为 `_QuotaEntry` + `_QuotaGuard` 引用计数，只回收「无在途使用者且空闲超时」的锁，避免「旧锁未进临界区却被淘汰」破坏互斥 | `services/debate_service.py` |
+| BE-3 | 非 speech 事件 id 起自 `NON_SPEECH_ID_BASE = 10_000_000`，与 speech 的 seq 空间彻底分离 | `services/event_bus.py` |
+| BE-4 | `_ask` 记录 `streamed` 标记；JSON 格式重试/降级前先发 `delta=""` 且 `attempt+1` 的重置信号，清空已推上屏的脏 JSON；非流式路径不发 | `engine/nodes/phases.py` |
+| BE-5 | `run_debate` 增加通用 `except Exception` 分支，异常路径也 `drain_golden(1.0)` 再抛出（推 SSE / 保留重连快照），不再被 `finally: close()` 丢弃 | `engine/runner.py` |
+| BE-6 | 独白环节时长配 0 时跳过发言但保留成对 `phase_start/phase_end`；自由辩单轮 `cap<=0` 时跳过该轮。两者都不再触发 `DebateAborted` 熔断整场 | `engine/nodes/phases.py` |
+| BE-7 | SSE 流重放 DB 后重读一次 `debate.status/error` 再决定快照，且把 `bus.closed` 纳入收尾条件；窄窗口内不再把陈旧 `running` 当作终态 | `api/debates.py` |
+| FE-1 | `applyDelta` 增加 seq 单调守卫：落后 `lastSeq` 或落后当前打字卡 seq 的迟到增量一律丢弃 | `stores/debateStore.ts` |
+| FE-2 | `getSpeeches` 按 `has_more` 循环拉全（游标推进 + 20 页上限保护 + 游标不推进时终止） | `api/client.ts` |
+| FE-3 | `applyGoldenQuotes` 合并后按 seq 排序并截取最新 64 条，前端也不再无界增长 | `stores/debateStore.ts` |
+
+**回归**：`backend/tests/unit/test_iss012_regressions.py`（8 项：并发 usage、id 空间、锁/总线回收与互斥、流式重置、异常收割、0 时长跳过）、`frontend/src/api/client.test.ts`（3 项分页）、`frontend/src/stores/debateStore.test.ts`（2 项：FE-1/FE-3）。BE-7 由 `tests/api/test_sse.py` 7 项流式集成覆盖。
+
+**注意**：BE-2 的 60s 回收窗口意味着终态 60s 后 `get_bus()` 返回 `None`；`stream_debate` 已按 DB 终态收尾，功能不受影响（不再依赖内存总线补发）。

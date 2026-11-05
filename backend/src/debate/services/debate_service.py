@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import replace as _dc_replace
+import time
+from dataclasses import dataclass, field, replace as _dc_replace
 from typing import Callable
 
 from sqlalchemy import delete
@@ -30,6 +31,43 @@ logger = logging.getLogger("debate.service")
 
 RUNNING_STATUSES = ("pending", "running")
 TERMINAL_STATUSES = ("finished", "failed", "stopped")
+
+BUS_REPLAY_TTL_SECONDS = 60.0    # 终态后保留总线，供窄窗口重连补发（ISS-012 BE-2）
+QUOTA_LOCK_TTL_SECONDS = 300.0  # 空闲配额锁的回收时限（ISS-012 BE-2）
+
+
+@dataclass
+class _QuotaEntry:
+    """按用户的配额锁 + 在途 guard 计数；只有 users==0 且锁空闲时才可安全回收。"""
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    users: int = 0
+    last_used: float = 0.0
+
+
+class _QuotaGuard:
+    """`async with service.quota_guard(uid)` 的代理：持有期间阻止该 entry 被回收。
+
+    直接 pop 一个 asyncio.Lock 是错的——已拿到旧锁、尚未进入临界区的协程会与
+    新协程创建的新锁并存，配额串行化被悄悄破坏（ISS-012 BE-2）。
+    """
+    def __init__(self, service: "DebateService", owner_id: int, entry: _QuotaEntry):
+        self._service = service
+        self._owner_id = owner_id
+        self._entry = entry
+
+    async def __aenter__(self) -> "_QuotaGuard":
+        try:
+            await self._entry.lock.acquire()
+        except BaseException:
+            self._entry.users -= 1  # 等锁被取消/异常：不留永久在途计数
+            raise
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        self._entry.lock.release()
+        self._entry.users -= 1
+        self._service._prune_quota_locks()
+        return False
 
 
 class QuotaExceeded(Exception):
@@ -62,7 +100,7 @@ class DebateService:
         self._tasks: dict[int, asyncio.Task] = {}
         self._cancel_flags: dict[int, dict] = {}
         self._buses: dict[int, EventBus] = {}
-        self._quota_locks: dict[int, asyncio.Lock] = {}  # 按用户串行化配额闸（ISS-001）
+        self._quota_locks: dict[int, _QuotaEntry] = {}  # 按用户串行化配额闸（ISS-001 / BE-2 可回收）
 
     # ---- 配额（CONSTRAINTS A5：并发 1 场 + 东八区自然日配额） ----
 
@@ -81,25 +119,54 @@ class DebateService:
             if (running.scalar_one() or 0) >= self.config.quota.concurrent_debates_per_user:
                 raise QuotaExceeded("QUOTA_CONCURRENT", "已有进行中的比赛，请稍后再试")
 
-    def quota_guard(self, owner_id: int) -> asyncio.Lock:
+    def quota_guard(self, owner_id: int) -> _QuotaGuard:
         """创建比赛的配额临界区（ISS-001）：check_quota 与落库必须同持一把锁。
 
         ARCH A1 单实例假设下进程内锁即关闭 check-then-act 窗口；
         水平扩展时需换 DB 行锁（SELECT ... FOR UPDATE）或分布式锁，
         与 EventBus 换 Redis 是同一时机的改造。
         """
-        lock = self._quota_locks.get(owner_id)
-        if lock is None:
-            lock = self._quota_locks.setdefault(owner_id, asyncio.Lock())
-        return lock
+        self._prune_quota_locks()
+        entry = self._quota_locks.get(owner_id)
+        if entry is None:
+            entry = _QuotaEntry()
+            self._quota_locks[owner_id] = entry
+        entry.last_used = time.monotonic()
+        entry.users += 1  # 从交出 guard 起即在途，关闭"拿到锁但未进临界区"的淘汰窗口
+        return _QuotaGuard(self, owner_id, entry)
+
+    def _prune_quota_locks(self) -> None:
+        """回收长期空闲且无在途使用者的配额锁，避免按用户数无限增长。"""
+        now = time.monotonic()
+        stale = [uid for uid, entry in self._quota_locks.items()
+                 if entry.users == 0 and not entry.lock.locked()
+                 and now - entry.last_used > QUOTA_LOCK_TTL_SECONDS]
+        for uid in stale:
+            self._quota_locks.pop(uid, None)
 
     # ---- 生命周期 ----
 
     def get_bus(self, debate_id: int) -> EventBus | None:
         return self._buses.get(debate_id)
 
+    def _schedule_bus_reclaim(self, debate_id: int, bus: EventBus) -> None:
+        """ISS-012 BE-2：终态后延迟回收总线（含全部快照），而不是永久驻留。
+
+        保留 60s 供「读到 running、订阅期间引擎恰好收尾」的窄窗口重连补发；
+        之后 get_bus 返回 None，stream 端点已按 DB 终态收尾，功能不受影响。
+        """
+        def _evict() -> None:
+            if self._buses.get(debate_id) is bus:  # 同 id 被复用的极端情况不误删新总线
+                self._buses.pop(debate_id, None)
+
+        try:
+            asyncio.get_running_loop().call_later(BUS_REPLAY_TTL_SECONDS, _evict)
+        except RuntimeError:  # 无事件循环（同步单测）：立刻回收即可
+            _evict()
+
     def start(self, *, debate_id: int, topic: Topic, fmt: DebateFormat) -> None:
-        self._buses[debate_id] = EventBus(debate_id)  # 先建总线再起任务，杜绝订阅空窗
+        bus = EventBus(debate_id)
+        self._buses[debate_id] = bus  # 先建总线再起任务，杜绝订阅空窗
         gateway = self.gateway_factory(self.config, fmt)
         compressor = self.compressor_factory(self.config, gateway)
         flag = {"cancelled": False}
@@ -107,7 +174,13 @@ class DebateService:
         task = asyncio.create_task(self._job(debate_id=debate_id, topic=topic, fmt=fmt, gateway=gateway,
                                              compressor=compressor, cancel_flag=flag))
         self._tasks[debate_id] = task
-        task.add_done_callback(lambda _t: (self._tasks.pop(debate_id, None), self._cancel_flags.pop(debate_id, None)))
+
+        def _on_done(_t: asyncio.Task) -> None:
+            self._tasks.pop(debate_id, None)
+            self._cancel_flags.pop(debate_id, None)
+            self._schedule_bus_reclaim(debate_id, bus)
+
+        task.add_done_callback(_on_done)
 
     def request_cancel(self, debate_id: int) -> bool:
         """协作式取消（CONSTRAINTS V：stop 只改旗标，引擎在节点边界退出）。"""

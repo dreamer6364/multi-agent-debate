@@ -170,7 +170,15 @@ class Gateway:
     _throttle_lock: threading.Lock = field(default_factory=threading.Lock)  # v1.9.1：评委并发后多线程调用
     extra_body: dict[str, Any] | None = None  # OpenAI 兼容透传（如 GLM thinking: disabled）
     usage: dict[str, int] = field(default_factory=lambda: {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0})
+    _usage_lock: threading.Lock = field(default_factory=threading.Lock)  # ISS-012 BE-1：评委多线程并发累加
     _client: Any = None
+
+    def _add_usage(self, *, prompt_tokens: int = 0, completion_tokens: int = 0) -> None:
+        """usage 累加原子化：三评委并行 complete() 时 dict 的 `+=` 会丢更新（ISS-012 BE-1）。"""
+        with self._usage_lock:
+            self.usage["calls"] += 1
+            self.usage["prompt_tokens"] += prompt_tokens
+            self.usage["completion_tokens"] += completion_tokens
 
     def _throttle(self) -> None:
         """全局限速（v1.4）：距上次调用不足 min_interval 则等待——免费档 RPM 保护。
@@ -204,9 +212,8 @@ class Gateway:
                 if cleaned != result.text:  # 兜底：正文混进文本型工具调用痕迹时剥掉
                     result = LLMResult(text=cleaned, prompt_tokens=result.prompt_tokens,
                                        completion_tokens=result.completion_tokens)
-                self.usage["calls"] += 1
-                self.usage["prompt_tokens"] += result.prompt_tokens
-                self.usage["completion_tokens"] += result.completion_tokens
+                self._add_usage(prompt_tokens=result.prompt_tokens,
+                                completion_tokens=result.completion_tokens)
                 return result
             except Exception as exc:  # noqa: BLE001 —— 统一重试，最终以 LLMExhausted 出口
                 last_exc = exc
@@ -264,9 +271,10 @@ class Gateway:
                 if tail:
                     collected.append(tail)
                     yield tail
-                self.usage["calls"] += 1
-                self.usage["prompt_tokens"] += sum(len(m.get("content", "")) for m in messages)
-                self.usage["completion_tokens"] += sum(len(c) for c in collected)
+                self._add_usage(
+                    prompt_tokens=sum(len(m.get("content", "")) for m in messages),
+                    completion_tokens=sum(len(c) for c in collected),
+                )
                 return
             except Exception as exc:  # noqa: BLE001 —— 与 complete 相同的重试出口
                 last_exc = exc
@@ -349,9 +357,8 @@ class Gateway:
                     messages, tools=tools, execute=execute, tier=tier,
                     temperature=temperature, max_tokens=max_tokens, max_rounds=max_rounds,
                 )
-                self.usage["calls"] += 1
-                self.usage["prompt_tokens"] += result.prompt_tokens
-                self.usage["completion_tokens"] += result.completion_tokens
+                self._add_usage(prompt_tokens=result.prompt_tokens,
+                                completion_tokens=result.completion_tokens)
                 cleaned = strip_tool_artifacts(result.text)
                 if cleaned != result.text:  # 异构后端同样可能把调用写进正文
                     result = LLMResult(text=cleaned, prompt_tokens=result.prompt_tokens,
@@ -388,9 +395,8 @@ class Gateway:
                 text = message.content or ""
                 parsed = parse_text_tool_calls(text)
                 if parsed is None:
-                    self.usage["calls"] += 1
-                    self.usage["prompt_tokens"] += prompt_tokens
-                    self.usage["completion_tokens"] += completion_tokens
+                    self._add_usage(prompt_tokens=prompt_tokens,
+                                    completion_tokens=completion_tokens)
                     return LLMResult(text=text, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
                 cleaned = strip_tool_artifacts(text)
                 if parsed and round_index < max_rounds:
@@ -415,9 +421,8 @@ class Gateway:
                         convo.append({"role": "tool", "tool_call_id": f"text_{round_index}_{i}", "content": result_text})
                     continue
                 if cleaned:  # 轮数耗尽/解析失败：至少把调用痕迹从正文剥掉
-                    self.usage["calls"] += 1
-                    self.usage["prompt_tokens"] += prompt_tokens
-                    self.usage["completion_tokens"] += completion_tokens
+                    self._add_usage(prompt_tokens=prompt_tokens,
+                                    completion_tokens=completion_tokens)
                     return LLMResult(text=cleaned, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
                 # 整条都是无法解析的调用痕迹 → 跳出走无工具收束
                 kwargs.pop("tools", None)
@@ -456,7 +461,8 @@ class Gateway:
         )
         usage = getattr(response, "usage", None)
         text = strip_tool_artifacts(response.choices[0].message.content or "")
-        self.usage["calls"] += 1
-        self.usage["prompt_tokens"] += prompt_tokens + (getattr(usage, "prompt_tokens", 0) or 0)
-        self.usage["completion_tokens"] += completion_tokens + (getattr(usage, "completion_tokens", 0) or 0)
+        self._add_usage(
+            prompt_tokens=prompt_tokens + (getattr(usage, "prompt_tokens", 0) or 0),
+            completion_tokens=completion_tokens + (getattr(usage, "completion_tokens", 0) or 0),
+        )
         return LLMResult(text=text, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)

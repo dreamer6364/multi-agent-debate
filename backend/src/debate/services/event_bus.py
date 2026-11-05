@@ -1,11 +1,15 @@
 """进程内事件总线（ARCH A1，单实例假设；水平扩展时以 Redis pub/sub 替换本文件）。
 
 每个进行中的比赛一个总线。speech 事件 id = 发言 seq（断线续传锚点）；
-其余事件 id 为总线内单调自增（SPEC §6.1/§6.2）。只在事件循环线程调用 publish。
+其余事件 id 为总线内单调自增，且整体落在独立高位段（ISS-012 BE-3）——
+两类 id 不再数值重叠，未来按 Last-Event-ID 恢复时不会把 speech 序号与非 speech
+序号混为一谈（SPEC §6.1/§6.2）。只在事件循环线程调用 publish。
 """
 from __future__ import annotations
 
 import asyncio
+
+NON_SPEECH_ID_BASE = 10_000_000  # 远大于单场发言数上限；speech id 恒 < 此值
 
 
 class EventBus:
@@ -21,7 +25,7 @@ class EventBus:
 
     def allocate_id(self) -> int:
         self._non_speech_id += 1
-        return self._non_speech_id
+        return NON_SPEECH_ID_BASE + self._non_speech_id
 
     def publish(self, event: dict) -> None:
         kind = event.get("event")
