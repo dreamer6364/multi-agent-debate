@@ -1,6 +1,6 @@
 # ISS-010（P3）前端单 chunk 1.17MB（gzip 374KB），超 Vite 500kB 告警线
 
-**状态**：待优化
+**状态**：✅ 已优化（路由级 `React.lazy` + `manualChunks` 只抽框架库；构建零 500kB 告警、零循环告警，最大 chunk 324.87kB，入口降至 7.38kB，页面 chunk 3~93kB；vitest 35/35、`tsc --noEmit` 0 错误、`vite build` 退出码 0）
 **位置**：`frontend`（构建产物 `dist/assets/index-*.js`）
 
 ## 结论

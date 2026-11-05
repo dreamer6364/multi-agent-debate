@@ -9,6 +9,21 @@ export default defineConfig({
   server: {
     proxy: { "/api": apiTarget }, // dev 代理到 FastAPI（CONSTRAINTS §1.2）；E2E 经 DEV_API_TARGET 指向独立后端
   },
+  build: {
+    // ISS-010：只把框架库（react 家族/路由/数据层）拆成独立 chunk——入口只留业务代码；
+    // antd/rc-* 不做整包强拆（会造出 >500kB 大块并引入 chunk 循环），随默认图按使用方分布。
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (!id.includes("node_modules")) return undefined;
+          if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler|@tanstack)[\\/]/.test(id)) {
+            return "vendor";
+          }
+          return undefined;
+        },
+      },
+    },
+  },
   test: {
     environment: "jsdom",
     globals: false,

@@ -1,14 +1,17 @@
 import { App as AntApp, ConfigProvider } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import AppLayout from "./components/AppLayout";
-import ArenaPage from "./pages/ArenaPage";
-import DebatesPage from "./pages/DebatesPage";
-import LandingPage from "./pages/LandingPage";
-import LoginPage from "./pages/LoginPage";
-import TopicsPage from "./pages/TopicsPage";
 import "./index.css";
+
+// ISS-010：路由级代码分割——页面按需加载，主 chunk 不再背整包（原单 chunk 1.17MB）
+const ArenaPage = lazy(() => import("./pages/ArenaPage"));
+const DebatesPage = lazy(() => import("./pages/DebatesPage"));
+const LandingPage = lazy(() => import("./pages/LandingPage"));
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const TopicsPage = lazy(() => import("./pages/TopicsPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -62,14 +65,20 @@ export default function App() {
     >
       <AntApp>
         <QueryClientProvider client={queryClient}>
-          <Routes>
-            <Route path="/" element={<AppLayout><LandingPage /></AppLayout>} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/topics" element={<AppLayout><TopicsPage /></AppLayout>} />
-            <Route path="/debates" element={<AppLayout><DebatesPage /></AppLayout>} />
-            <Route path="/debates/:id" element={<AppLayout><ArenaPage /></AppLayout>} />
-            <Route path="*" element={<Navigate to="/topics" replace />} />
-          </Routes>
+          <Suspense
+            fallback={
+              <div style={{ padding: 48, textAlign: "center", color: "#566070" }}>加载中…</div>
+            }
+          >
+            <Routes>
+              <Route path="/" element={<AppLayout><LandingPage /></AppLayout>} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/topics" element={<AppLayout><TopicsPage /></AppLayout>} />
+              <Route path="/debates" element={<AppLayout><DebatesPage /></AppLayout>} />
+              <Route path="/debates/:id" element={<AppLayout><ArenaPage /></AppLayout>} />
+              <Route path="*" element={<Navigate to="/topics" replace />} />
+            </Routes>
+          </Suspense>
         </QueryClientProvider>
       </AntApp>
     </ConfigProvider>
