@@ -30,6 +30,7 @@ export function useDebateStream(debateId: number | string | undefined): void {
   useEffect(() => {
     if (debateId === undefined) return;
     let cancelled = false; // 本 effect 实例专属，cleanup 后永不复位
+    let stopped = false; // v2.9.4：终态收摊后置位——SSE handler 停止接收（收尾补拉不受影响）
     let es: EventSource | null = null;
     let pollTimer: number | null = null;
     let reconcileTimer: number | null = null;
@@ -37,8 +38,8 @@ export function useDebateStream(debateId: number | string | undefined): void {
 
     useDebateStore.getState().reset();
 
-    const stopAll = () => {
-      cancelled = true;
+    const stopTimers = () => {
+      stopped = true;
       es?.close();
       es = null;
       if (pollTimer !== null) {
@@ -51,6 +52,37 @@ export function useDebateStream(debateId: number | string | undefined): void {
       }
     };
 
+    /** 会话销毁（卸载/切场）：cancelled 永久置位，一切 async 延续作废 */
+    const stopAll = () => {
+      cancelled = true;
+      stopTimers();
+    };
+
+    /**
+     * 终态收尾（v2.9.4 修复 FE-P1-2 / FE-P2-3）：补齐遗漏发言、落库谬误与金句后再收摊。
+     * - 三条终态路径（SSE status / 降级轮询 / 状态对账）共用，此前降级轮询命中终态直接
+     *   stopAll+return，谬误与金句当场全部丢失；
+     * - 守卫只看 cancelled（卸载/切场）：await 窗口内切到另一场比赛时丢弃延续，
+     *   防止旧场次的发言/金句打进新场刚 reset 过的 store、抬错 lastSeq。
+     */
+    const finalizeFromRest = () => {
+      void (async () => {
+        try {
+          const page = await getSpeeches(debateId, 0);
+          if (cancelled) return;
+          page.items.forEach((s) => useDebateStore.getState().applySpeech(s));
+          useDebateStore.getState().ingestFallacies(page.items);
+          const detail = await getDebate(debateId);
+          if (cancelled) return;
+          if (detail.golden_quotes?.length) {
+            useDebateStore.getState().applyGoldenQuotes(detail.golden_quotes);
+          }
+        } catch {
+          /* 补拉失败不阻塞收摊（用户可刷新恢复） */
+        }
+      })();
+    };
+
     const startPolling = () => {
       if (pollTimer !== null || cancelled) return;
       pollTimer = window.setInterval(() => {
@@ -61,10 +93,12 @@ export function useDebateStream(debateId: number | string | undefined): void {
             if (cancelled) return;
             useDebateStore.getState().setStatus(detail.status as DebateStatus, detail.error);
             if (TERMINAL.has(detail.status)) {
-              stopAll();
+              stopTimers(); // 只停轮询，不置 cancelled——收尾补拉要继续跑
+              finalizeFromRest();
               return;
             }
             const page = await getSpeeches(debateId, useDebateStore.getState().lastSeq);
+            if (cancelled) return; // await 窗口内卸载/切场：丢弃旧场数据
             page.items.forEach((s) => useDebateStore.getState().applySpeech(s));
           } catch {
             /* 下个周期重试 */
@@ -86,16 +120,10 @@ export function useDebateStream(debateId: number | string | undefined): void {
             if (local.status !== detail.status) {
               local.setStatus(detail.status as DebateStatus, detail.error);
             }
-            // 终态：补齐遗漏发言与落库谬误，然后彻底收尾
+            // 终态：统一走 finalizeFromRest 补齐遗漏发言/谬误/金句，然后彻底收尾
             if (TERMINAL.has(detail.status)) {
-              const page = await getSpeeches(debateId, 0);
-              page.items.forEach((s) => useDebateStore.getState().applySpeech(s));
-              useDebateStore.getState().ingestFallacies(page.items);
-              // v2.9 终态兜底：订阅空窗期错过的金句随详情接口落库数据补齐
-              if (detail.golden_quotes?.length) {
-                useDebateStore.getState().applyGoldenQuotes(detail.golden_quotes);
-              }
-              stopAll();
+              stopTimers();
+              finalizeFromRest();
             }
           } catch {
             /* 下个周期重试 */
@@ -130,7 +158,17 @@ export function useDebateStream(debateId: number | string | undefined): void {
 
       const bind = <T,>(name: string, handler: (data: T) => void) =>
         es!.addEventListener(name, (ev: MessageEvent) => {
-          if (!cancelled) handler(JSON.parse(ev.data) as T);
+          if (cancelled || stopped) return;
+          // v2.9.4 修复（FE-P2-4）：EventSource 原生 error 事件的 ev.data 是 undefined，
+          // 此前 JSON.parse(undefined) 每次断线必抛 SyntaxError；坏 JSON 同样静默跳过
+          if (ev.data == null) return;
+          let parsed: T;
+          try {
+            parsed = JSON.parse(ev.data) as T;
+          } catch {
+            return;
+          }
+          handler(parsed);
         });
 
       bind<LiveSpeech>("speech", (d) => useDebateStore.getState().applySpeech(d));
@@ -143,34 +181,22 @@ export function useDebateStream(debateId: number | string | undefined): void {
       // v1.9.2 评审进度心跳：质检 → 评审 x/3 → 完成，附带耗时（前端显示"已评议 Xs"）
       bind<JudgingProgress>("judging_progress", (d) => useDebateStore.getState().setJudgingProgress(d));
       bind<Verdict>("verdict", (d) => useDebateStore.getState().setVerdict(d));
-      // v1.7 Elenchus：评审节点产出的谬误标注（marks 按 seq 挂载到发言卡）
-      bind<{ marks: FallacyMark[] }>("fallacy", (d) => useDebateStore.getState().setFallacyMarks(d.marks));
+      // v1.7 Elenchus：评审节点产出的谬误标注（marks 按 seq 挂载到发言卡）；?? [] 防异常载荷
+      bind<{ marks: FallacyMark[] }>("fallacy", (d) => useDebateStore.getState().setFallacyMarks(d.marks ?? []));
       // v2.7 复盘泳道总结：每条发言后推最新一份（重连由服务端补发 last_swimlane）
       bind<SwimlanePayload>("swimlane", (d) => useDebateStore.getState().applySwimlane(d));
       // v2.9 金句摘录：增量推送（重连由服务端补发全量累计金句，store 内去重合并）
-      bind<{ quotes: GoldenQuote[] }>("golden_quote", (d) => useDebateStore.getState().applyGoldenQuotes(d.quotes));
+      bind<{ quotes: GoldenQuote[] }>("golden_quote", (d) => useDebateStore.getState().applyGoldenQuotes(d.quotes ?? []));
       bind("error", () => undefined); // error 事件仅提示性；终态由 status 承载
       bind<{ status: DebateStatus; error: string | null }>("status", (d) => {
         useDebateStore.getState().setStatus(d.status, d.error);
         if (TERMINAL.has(d.status)) {
-          stopAll();
           // 终态补拉（v2.2）：谬误标注在引擎 finalize 时才落库，SSE speech 事件不含，需回读合并；
           // 同时**补齐订阅空窗期错过的发言**——开赛瞬间主席引题演讲可能早于 EventSource 建连，
           // 只补谬误会让"主席开篇"永久空白。DB 是唯一事实来源（CONSTRAINTS B5）。
-          void getSpeeches(debateId, 0)
-            .then((page) => {
-              page.items.forEach((s) => useDebateStore.getState().applySpeech(s));
-              useDebateStore.getState().ingestFallacies(page.items);
-            })
-            .catch(() => undefined);
-          // v2.9 终态兜底：落库金句回读合并（与 swimlane 同一补拉纪律）
-          void getDebate(debateId)
-            .then((detail) => {
-              if (detail.golden_quotes?.length) {
-                useDebateStore.getState().applyGoldenQuotes(detail.golden_quotes);
-              }
-            })
-            .catch(() => undefined);
+          // v2.9.4：统一走 finalizeFromRest（自带 cancelled 守卫，防跨场次污染）
+          stopTimers();
+          finalizeFromRest();
         }
       });
 

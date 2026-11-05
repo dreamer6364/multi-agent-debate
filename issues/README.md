@@ -1,7 +1,8 @@
 # 测试问题清单（Issues）
 
 > 测试人角色产出：系统性测试（功能 / 并发 / 安全 / 部署 / 静态质量）发现的问题，按优先级排序。
-> 测试日期：2026-11-01。基线：main @ `2310cbd`（后端 pytest 219 passed + 4 既有失败；前端 vitest 35 passed、tsc 0、vite build 0）。
+> 测试日期：2026-11-01；v2.9.4 复核：2026-11-05。基线：main @ `2310cbd`（后端 pytest 219 passed + 4 既有失败；前端 vitest 35 passed、tsc 0、vite build 0）。
+> v2.9.4 全项目体检复核结果：后端 `pytest tests/` **233 passed**（含 SSE 7/7，代理劫持已修）、`ruff check src tests` 0；前端 `vitest run` 35 passed、`tsc --noEmit` 0、`vite build` 0。
 
 ## 优先级定义
 
@@ -14,19 +15,21 @@
 
 ## 问题索引（按优先级排序）
 
-| 编号 | 级别 | 标题 | 位置 |
-|------|------|------|------|
-| [ISS-001](ISS-001-quota-toctou.md) | P0 | 配额"同时 1 场"被 TOCTOU 竞态绕过：并发创建两场都返回 202 | `services/debate_service.py:67` |
-| [ISS-002](ISS-002-orphan-topic.md) | P1 | 配额 429 时自建辩题已先落库成孤儿，用户重试即堆积重复辩题 | `api/debates.py:85-102` |
-| [ISS-003](ISS-003-stale-sse-tests.md) | P1 | `test_sse.py` 4 个用例断言过期（v2.2/v2.3 行为演进未同步测试），CI 基线失真 | `tests/api/test_sse.py` |
-| [ISS-004](ISS-004-dockerfile-broken.md) | P1 | Dockerfile 构建必失败（`COPY README.md*` 无匹配文件），且缺 `COPY knowledge`，容器内首场比赛必崩 `CorpusError` | `backend/Dockerfile` |
-| [ISS-005](ISS-005-shared-test-db.md) | P2 | API 测试共享全局 MySQL `mad_test` + 逐用例 TRUNCATE：无法并行、互踩即假红；且口令硬编码入库 | `tests/api/conftest.py:29` |
-| [ISS-006](ISS-006-tracked-debug-db.md) | P2 | 调试残留 `backend/._sse_dbg/test.db`（SQLite 61KB）被 git 追踪 | `backend/._sse_dbg/` |
-| [ISS-007](ISS-007-ruff-debt.md) | P2 | ruff 共 176 处违规未清理，含 `runtime.py` 3 处 F821 `Any` 未导入（mypy 必挂）等真实缺陷信号 | `src/debate/engine/runtime.py:35` |
-| [ISS-008](ISS-008-cors-dead-config.md) | P2 | `CORS_ORIGINS` 为死配置：`.env` 提供该变量但后端从未挂载 CORSMiddleware | `api/app.py` |
-| [ISS-009](ISS-009-jwt-default-secret.md) | P2 | `JWT_SECRET` 缺省回落到内置 `dev-insecure-secret`：忘配环境变量即可伪造任意用户会话 | `api/app.py:87` |
-| [ISS-010](ISS-010-bundle-size.md) | P3 | 前端单 chunk 1.17MB（gzip 374KB），超 Vite 500kB 告警线 | `frontend/dist` |
-| [ISS-011](ISS-011-stop-finalize-race.md) | P3 | stop 与终态落库竞态：`_write_final` 无条件覆盖 status（静态审查发现，未稳定复现） | `services/debate_service.py:383` |
+| 编号 | 级别 | 状态 | 标题 | 位置 |
+|------|------|------|------|------|
+| [ISS-001](ISS-001-quota-toctou.md) | P0 | 已修 | 配额"同时 1 场"被 TOCTOU 竞态绕过：并发创建两场都返回 202 | `services/debate_service.py:67` |
+| [ISS-002](ISS-002-orphan-topic.md) | P1 | 已修 | 配额 429 时自建辩题已先落库成孤儿，用户重试即堆积重复辩题 | `api/debates.py:85-102` |
+| [ISS-003](ISS-003-stale-sse-tests.md) | P1 | 已修 | `test_sse.py` 4 个用例断言过期（v2.2/v2.3 行为演进未同步测试），CI 基线失真 | `tests/api/test_sse.py` |
+| [ISS-004](ISS-004-dockerfile-broken.md) | P1 | 已修 | Dockerfile 构建必失败（`COPY README.md*` 无匹配文件），且缺 `COPY knowledge`，容器内首场比赛必崩 `CorpusError` | `backend/Dockerfile` |
+| [ISS-005](ISS-005-shared-test-db.md) | P2 | 已修 | API 测试共享全局 MySQL `mad_test` + 逐用例 TRUNCATE：无法并行、互踩即假红；且口令硬编码入库 | `tests/api/conftest.py:29` |
+| [ISS-006](ISS-006-tracked-debug-db.md) | P2 | 已修 | 调试残留 `backend/._sse_dbg/test.db`（SQLite 61KB）被 git 追踪 | `backend/._sse_dbg/` |
+| [ISS-007](ISS-007-ruff-debt.md) | P2 | 已修 | ruff 共 176 处违规未清理，含 `runtime.py` 3 处 F821 `Any` 未导入（mypy 必挂）等真实缺陷信号 | `src/debate/engine/runtime.py:35` |
+| [ISS-008](ISS-008-cors-dead-config.md) | P2 | 已修 | `CORS_ORIGINS` 为死配置：`.env` 提供该变量但后端从未挂载 CORSMiddleware | `api/app.py` |
+| [ISS-009](ISS-009-jwt-default-secret.md) | P2 | 已修 | `JWT_SECRET` 缺省回落到内置 `dev-insecure-secret`：忘配环境变量即可伪造任意用户会话 | `api/app.py:87` |
+| [ISS-010](ISS-010-bundle-size.md) | P3 | 已修 | 前端单 chunk 1.17MB（gzip 374KB），超 Vite 500kB 告警线 | `frontend/dist` |
+| [ISS-011](ISS-011-stop-finalize-race.md) | P3 | 已修（v2.9.4） | stop 与终态落库竞态：`_write_final` 无条件覆盖 status | `services/debate_service.py:383` |
+| [ISS-012](ISS-012-review-residual-p3.md) | P3 | 登记待议 | v2.9.4 全项目体检遗留低危项（10 条语义/边界瑕疵，无功能错误） | 见文档 |
+| [ISS-013](ISS-013-sse-tests-proxy-hijack.md) | P1-测试基建 | 已修（v2.9.4） | SSE 集成测试被系统代理劫持：长挂的 7 个 `test_sse` 失败根因 | `tests/api/conftest.py:210` |
 
 ## 测试通过项（无问题记录，防止重复排查）
 

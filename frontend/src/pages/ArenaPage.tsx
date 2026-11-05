@@ -120,21 +120,9 @@ export default function ArenaPage() {
     </div>
   ) : null;
 
-  if (isError && (error as { response?: { status?: number } })?.response?.status === 404) {
-    return (
-      <div style={{ maxWidth: 1080 }}>
-        <div className="neu-raised" style={{ padding: 24 }}>
-          <div style={{ color: "var(--con-deep)", fontWeight: 700 }}>比赛不存在或不可见</div>
-          <div style={{ color: "var(--ink-2)", fontSize: 14, margin: "6px 0 14px" }}>
-            它可能属于其他用户，或已被删除。
-          </div>
-          <Button href="/debates">返回归档</Button>
-        </div>
-      </div>
-    );
-  }
-
   // 动态计时条：当前环节已消耗字数（phase 戳由 store 在实况/回放时统一标注）
+  // v2.9.4 修复（FE-P1-1）：这两个 useMemo 必须位于下方 404 提前 return 之前——
+  // 否则 404 时 hooks 数量骤减，React 抛 "Rendered fewer hooks than expected" 整树白屏
   const consumed = useMemo(
     () => speeches.filter((s) => s.phase === phase && s.camp !== "neutral").reduce((acc, s) => acc + (s.word_count ?? 0), 0),
     [speeches, phase],
@@ -151,6 +139,20 @@ export default function ArenaPage() {
   const inCross = running && (phaseName?.includes("质询") || phaseName?.includes("攻辩"));
   const inFree = running && phase === 7;
   const latestSeq = speeches.length ? speeches[speeches.length - 1].seq : -1;
+
+  if (isError && (error as { response?: { status?: number } })?.response?.status === 404) {
+    return (
+      <div style={{ maxWidth: 1080 }}>
+        <div className="neu-raised" style={{ padding: 24 }}>
+          <div style={{ color: "var(--con-deep)", fontWeight: 700 }}>比赛不存在或不可见</div>
+          <div style={{ color: "var(--ink-2)", fontSize: 14, margin: "6px 0 14px" }}>
+            它可能属于其他用户，或已被删除。
+          </div>
+          <Button href="/debates">返回归档</Button>
+        </div>
+      </div>
+    );
+  }
 
   const recordTab = (
     <div>

@@ -16,7 +16,6 @@ import json  # noqa: E402
 import uvicorn  # noqa: E402
 
 from debate.api.app import create_app  # noqa: E402
-from debate.core.config import deep_merge  # noqa: E402
 from debate.engine.llm.gateway import Gateway  # noqa: E402
 from tests.fakes.compressor import fake_columns  # noqa: E402
 from tests.fakes.llm import FakeLLM  # noqa: E402

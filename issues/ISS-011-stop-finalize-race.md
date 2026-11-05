@@ -36,3 +36,15 @@ detail = await wait_status(client, id, "stopped")
 ## 验收标准
 
 - 存在覆盖"stop 与终点同窗口"的回归测试；status 语义与 SPEC §5 一致（无论采纳哪种口径）。
+
+## 已修复（2026-11-05，v2.9.4）
+
+双向竞态均已修复：
+
+1. **正向（stop 被 finished 覆盖）**：`_write_final` 落库前重读 `_cancel_flags`——
+   `result.status == "finished"` 且旗标已置位时改写为 `stopped`（内容字段照常写全）。
+2. **反向（迟到的 stopped 覆盖 finished）**：stop 端点的状态写入改为条件更新
+   `UPDATE debates SET status='stopped' WHERE id=:id AND status IN ('pending','running')`，
+   rowcount==0 说明终态先到，返回 409 不再覆盖。
+
+回归：`tests/api/test_debates.py::test_stop_*` 全绿；`_write_final` 分支由全流程 stop 用例覆盖。

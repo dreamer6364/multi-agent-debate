@@ -96,8 +96,9 @@ export function SpeechCard({ speech, active = false }: { speech: LiveSpeech; act
       </div>
       <div className="sp-flags">
         {speech.interrupted && <Tag color="volcano">已被打断</Tag>}
-        {speech.side_notes.map((note) => (
-          <Tag key={note} color={note.startsWith("违规") ? "volcano" : "default"}>
+        {speech.side_notes.map((note, i) => (
+          // v2.9.4：key 用序号——side_notes 可能含重复文本（如两次计时警告），key={note} 会撞 key
+          <Tag key={`${note}-${i}`} color={note.startsWith("违规") ? "volcano" : "default"}>
             {note}
           </Tag>
         ))}

@@ -64,7 +64,7 @@ async def _blocked_debate(backend_root, tmp_path):
                        backend=backend, model_debater="fake", model_official="fake",
                        max_retries=0, sleep=lambda s: None))
     live = LiveServer(app).start()
-    client = AsyncClient(base_url=live.base_url)
+    client = AsyncClient(base_url=live.base_url, trust_env=False)
     await register_and_login(client, "alice")
     debate_id = (await client.post("/api/debates", json={"topic_id": 1, "format": "lite"})).json()["id"]
     await asyncio.to_thread(backend.started.wait, 10)
@@ -133,7 +133,7 @@ async def test_sse03_after_seq_replay(backend_root, tmp_path):
     app = make_app(backend_root, tmp_path)
     live = LiveServer(app).start()
     try:
-        client = AsyncClient(base_url=live.base_url)
+        client = AsyncClient(base_url=live.base_url, trust_env=False)
         await register_and_login(client, "alice")
         debate_id = (await client.post("/api/debates", json={"topic_id": 1, "format": "lite"})).json()["id"]
         await wait_status(client, debate_id, "finished")
@@ -179,7 +179,7 @@ async def test_sse05_failed_debate_terminal(backend_root, tmp_path):
                        max_retries=0, sleep=lambda s: None))
     live = LiveServer(app).start()
     try:
-        client = AsyncClient(base_url=live.base_url)
+        client = AsyncClient(base_url=live.base_url, trust_env=False)
         await register_and_login(client, "alice")
         debate_id = (await client.post("/api/debates", json={"topic_id": 1, "format": "lite"})).json()["id"]
         detail = await wait_status(client, debate_id, "failed")
@@ -204,7 +204,7 @@ async def test_sse05_failed_debate_terminal(backend_root, tmp_path):
 async def test_sse06_multi_subscriber_equivalence(backend_root, tmp_path):
     app, client, backend, debate_id, live = await _blocked_debate(backend_root, tmp_path)
     try:
-        subscribers = [AsyncClient(base_url=live.base_url) for _ in range(3)]
+        subscribers = [AsyncClient(base_url=live.base_url, trust_env=False) for _ in range(3)]
         for c in subscribers:  # alice 已注册，多端只需登录
             login = await c.post("/api/auth/login", json={"username": "alice", "password": "password8"})
             assert login.status_code == 200

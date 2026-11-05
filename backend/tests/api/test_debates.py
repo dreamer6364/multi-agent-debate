@@ -294,3 +294,33 @@ async def test_delete_running_debate_rejected(env, backend_root, tmp_path):
         backend.release.set()
         await wait_status(client, debate_id, "finished")
         await client.aclose()
+
+
+async def test_start_failure_marks_failed_and_frees_quota(env):
+    """v2.9.4 回归（BE-P2-1）：start 失败不留孤儿 pending。
+
+    pending 计入并发配额（上限 1）——此前 start 抛异常会留下没有 task 的幽灵
+    pending 场次，把该用户后续所有创建请求 429 堵死。修复后回写 failed 并放行。
+    """
+    client = await new_client(env)
+    await register_and_login(client, "alice")
+    service = env.app.state.svc.service
+    original_start = service.start
+
+    def boom(**kwargs):
+        raise RuntimeError("gateway init failed")
+
+    service.start = boom
+    try:
+        response = await client.post("/api/debates", json={"topic_id": 1, "format": "lite"})
+        assert response.status_code == 500
+        listed = (await client.get("/api/debates")).json()
+        assert listed["total"] == 1
+        assert listed["items"][0]["status"] == "failed"  # 不再是 pending 幽灵
+    finally:
+        service.start = original_start
+
+    # 配额已释放：下一场可正常启动并跑完
+    debate_id = await _start(client)
+    await wait_status(client, debate_id, "finished")
+    await client.aclose()

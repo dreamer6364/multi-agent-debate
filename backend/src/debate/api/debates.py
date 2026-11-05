@@ -8,7 +8,7 @@ from collections import Counter
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import func, select
 
@@ -116,8 +116,19 @@ async def create_debate(body: DebateCreateIn, request: Request,
         session.add(debate)
         await session.commit()
 
-    state.service.start(debate_id=debate.id, topic=_row_to_engine_topic(topic_row),
-                        fmt=DebateFormat(body.format))
+    # v2.9.4 修复（BE-P2-1）：start 失败（如 .env 缺模型配置、网关初始化异常）不能留
+    # 孤儿 pending——pending 计入并发配额且上限为 1，幽灵场次会 429 堵死该用户全部后续创建。
+    try:
+        state.service.start(debate_id=debate.id, topic=_row_to_engine_topic(topic_row),
+                            fmt=DebateFormat(body.format))
+    except Exception as exc:
+        async with state.sessionmaker() as fix_session:  # 原会话已关闭，重开一个回写终态
+            fix = await fix_session.get(DebateRow, debate.id)
+            if fix is not None and fix.status == "pending":
+                fix.status = "failed"
+                fix.error = f"启动失败：{exc}"
+                await fix_session.commit()
+        raise ApiError(500, "debate_start_failed", f"比赛启动失败：{exc}") from exc
     return {"id": debate.id, "status": debate.status}
 
 
@@ -246,10 +257,17 @@ async def stop_debate(debate_id: int, request: Request, user=Depends(get_current
     debate = await _owned_debate(session, debate_id, user.id)
     if debate.status not in ("pending", "running"):
         raise ApiError(409, "DEBATE_NOT_RUNNING", "比赛不在进行中")
-    # 立即改状态 + 置取消旗标；引擎在节点边界退出后 finalize 仍写 stopped（竞态窗口内若已完成则终态为 finished）
-    debate.status = "stopped"
-    session.add(debate)
-    await session.commit()
+    # 立即改状态 + 置取消旗标；引擎在节点边界退出后 finalize 仍写 stopped
+    # （ISS-011：状态写入用条件更新——读到 pending/running 与写入之间引擎可能恰好
+    # 终态落库，条件更新保证终态 finished 不会被迟到的 stopped 回写覆盖）
+    result = await session.execute(
+        update(DebateRow)
+        .where(DebateRow.id == debate_id, DebateRow.status.in_(("pending", "running")))
+        .values(status="stopped")
+    )
+    if result.rowcount == 0:  # 条件更新未命中：终态先到，按不可停止处理
+        await session.rollback()
+        raise ApiError(409, "DEBATE_NOT_RUNNING", "比赛不在进行中")
     state.service.request_cancel(debate_id)
     return {"status": "stopped"}
 
@@ -383,6 +401,11 @@ async def stream_debate(debate_id: int, request: Request, after_seq: int = 0,
             if bus.golden_quotes:
                 yield _sse({"event": "golden_quote", "id": bus.allocate_id(),
                             "data": {"quotes": list(bus.golden_quotes)}})
+            # v2.9.4 修复（BE-P2-2）：谬误标注与金句对称补发——此前 fallacy 只以增量事件
+            # 推送且落库在终态，重连客户端会永久丢失断线前的全部标注
+            if bus.fallacy_marks:
+                yield _sse({"event": "fallacy", "id": bus.allocate_id(),
+                            "data": {"marks": list(bus.fallacy_marks)}})
             # 3) 实时消费
             while True:
                 try:

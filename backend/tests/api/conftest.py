@@ -207,7 +207,7 @@ async def new_client(env) -> AsyncClient:
 
 async def new_live_client(live) -> AsyncClient:
     """连接真实 uvicorn 线程服务器的客户端（流式语义测试用）。"""
-    return AsyncClient(base_url=live.base_url)
+    return AsyncClient(base_url=live.base_url, trust_env=False)
 
 
 async def register_and_login(client: AsyncClient, username: str = "alice", password: str = "password8"):

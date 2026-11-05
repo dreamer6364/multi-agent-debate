@@ -57,15 +57,23 @@ class DebateContext:
             self.on_event({"event": event, "data": data})
 
     def track_speech(self, speech: Speech) -> None:
-        """每条发言落定后：流式质检 + 金句摘录入队（边辩边跑）+ 推送最新一份复盘泳道总结。"""
+        """每条发言落定后：流式质检 + 金句摘录入队（边辩边跑）+ 推送最新一份复盘泳道总结。
+
+        v2.9.4 修复（BE-P1-1）：submit 后立即无等待 poll 一次（harvest(0)）——
+        此前 drain/emit 只发生在评审阶段的 harvest 与终态，直播全程的
+        fallacy / golden_quote SSE 事件被积压到赛后才一次性补发，实时特性失效。
+        harvest(0) 幂等、加锁、不阻塞：完成一条推一条，未完成的留给下次。
+        """
         if self.qc is not None:
             try:
                 self.qc.submit(speech)
+                self.qc.harvest(0)
             except Exception:  # noqa: BLE001 —— 质检任何失败不拖辩论
                 pass
         if self.golden is not None:
             try:
                 self.golden.submit(speech)
+                self.golden.harvest(0)
             except Exception:  # noqa: BLE001 —— 金句摘录任何失败不拖辩论
                 pass
         if self.on_event:

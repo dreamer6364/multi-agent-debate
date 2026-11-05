@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import replace as _dc_replace
 from typing import Callable
 
 from sqlalchemy import delete
@@ -117,11 +118,19 @@ class DebateService:
         return True
 
     async def shutdown(self) -> None:
+        """优雅停机：置取消旗标后有界等待——引擎线程只能在节点边界响应取消，
+        若正卡在长 LLM 调用（客户端超时×重试可达数分钟），无界 gather 会把
+        lifespan 关闭挂起同样长的时间。超时后放弃等待（线程随进程退出）。"""
         for flag in self._cancel_flags.values():
             flag["cancelled"] = True
         tasks = [t for t in self._tasks.values() if not t.done()]
         if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True), timeout=15.0,
+                )
+            except TimeoutError:
+                pass  # 有界让步：未完成的任务不再阻塞停机
 
     # ---- 内部 ----
 
@@ -397,6 +406,13 @@ class DebateService:
             if debate is None:  # 场次被并发删除：不再落库，交由上层按失败收尾
                 raise RuntimeError(f"debate {debate_id} 不存在，无法写入终态")
             await session.execute(delete(ScorecardRow).where(ScorecardRow.debate_id == debate_id))
+            # ISS-011：用户显式 stop 后，引擎若恰在终点前收尾（取消只在节点边界检查），
+            # result.status 会把已写入的 stopped 无条件覆盖回 finished——"被叫停"语义被吞。
+            # 落库前重读取消旗标：已请求取消的场次一律以 stopped 记终（内容字段照常写全）。
+            if result.status == "finished":
+                flag = self._cancel_flags.get(debate_id)
+                if flag is not None and flag.get("cancelled"):
+                    result = _dc_replace(result, status="stopped")
             debate.status = result.status
             debate.error = result.error
             debate.finished_at = self.now_fn()
