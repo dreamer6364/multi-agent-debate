@@ -311,7 +311,7 @@ v2.2 起 phase 1 与 phase 11 属于"仪式骨架"，两种赛制都必须执行
 
 | 端点 | 说明 |
 |---|---|
-| `GET /api/topics` | 200 `{items: [{id, title, pro_points, con_points, is_builtin, owner_id, created_at}]}`，内置 + 自己的 |
+| `GET /api/topics` | 200 `{items: [{id, title, pro_points, con_points, is_builtin, owner_id, created_at}]}`，内置 + 自己的；v2.10 起经只读旁路缓存加速（cache-aside，键按用户隔离）：本端点写路径与自建辩题路径提交后主动失效对应键、启动播种后按前缀清空、TTL 60s 兜底——响应内容与直读 DB 恒等，缓存故障时自动降级直读 |
 | `POST /api/topics` | 201；body `{title(≤200), pro_points, con_points}`；owner = 当前用户 |
 | `DELETE /api/topics/{id}` | 204；仅属主；内置辩题返回 FORBIDDEN；被引用时 409 `TOPIC_IN_USE` |
 | `DELETE /api/topics/{id}?force=true` | 204；连同名下历史场次（speeches / scorecards / debates）一并删除；该辩题仍有 pending/running 场次时 409 `TOPIC_IN_USE` |

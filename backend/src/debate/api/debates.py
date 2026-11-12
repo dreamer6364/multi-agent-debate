@@ -115,6 +115,10 @@ async def create_debate(body: DebateCreateIn, request: Request,
         )
         session.add(debate)
         await session.commit()
+        if body.custom_topic is not None:
+            # 自建辩题随场次同事务落库（ISS-002）：提交后须使列表缓存失效，新辩题立即可见
+            from .topics import invalidate_topic_list
+            await invalidate_topic_list(state, user.id)
 
     # v2.9.4 修复（BE-P2-1）：start 失败（如 .env 缺模型配置、网关初始化异常）不能留
     # 孤儿 pending——pending 计入并发配额且上限为 1，幽灵场次会 429 堵死该用户全部后续创建。

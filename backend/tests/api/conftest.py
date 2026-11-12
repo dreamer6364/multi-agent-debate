@@ -27,6 +27,7 @@ from sqlalchemy import text
 from debate.api.app import create_app
 from debate.core.config import load_env
 from debate.engine.llm.gateway import Gateway
+from debate.services.cache import MemoryCache
 
 _TZ = ZoneInfo("Asia/Shanghai")
 
@@ -135,7 +136,8 @@ class BlockingBackend:
             yield text[i : i + 4]
 
 
-def make_app(backend_root: Path, tmp_path: Path | None = None, *, gateway_factory=None, now_fn=None, **kwargs):
+def make_app(backend_root: Path, tmp_path: Path | None = None, *, gateway_factory=None, now_fn=None,
+             cache=None, **kwargs):
     return create_app(
         config_path=backend_root / "config.yaml",
         db_url=TEST_DB_URL,
@@ -144,6 +146,9 @@ def make_app(backend_root: Path, tmp_path: Path | None = None, *, gateway_factor
         gateway_factory=gateway_factory or fake_gateway_factory(backend_root),
         compressor_factory=lambda config, gateway: _fake_columns,
         now_fn=now_fn,
+        # 测试默认注入全新进程内缓存：即便环境设了 REDIS_URL 也不连真 Redis
+        # （否则库被逐用例 TRUNCATE 而 Redis 键残留，会产生跨用例脏命中）
+        cache=cache if cache is not None else MemoryCache(),
         **kwargs,
     )
 

@@ -12,7 +12,7 @@
 
 ---
 
-## 1. 技术栈总览（已确认，共 12 项决策）
+## 1. 技术栈总览（已确认，共 13 项决策）
 
 | 层面 | 选型 | 说明 |
 |---|---|---|
@@ -26,6 +26,7 @@
 | UI 组件库 | **Ant Design 5** | 表格/表单/布局现成；评分雷达图用内联 SVG 自绘（v2.1 修订：省去 @ant-design/charts 重依赖，与 HTML 报告同源口径） |
 | 前端数据层 | TanStack Query + zustand + axios | 服务端状态缓存 + 直播态本地 store |
 | 实时通信 | **SSE** | 单向直播流，自动重连；HTTP 原生（§8.3） |
+| 缓存 | **Redis 可选只读旁路缓存**（`REDIS_URL`） | cache-aside：辩题列表读加速；写路径主动失效 + TTL 兜底；未配置回落进程内缓存、故障自动降级直读 DB（B8 修订）；DB 始终是唯一事实来源（B5） |
 | 认证 | **完整注册登录**，JWT + bcrypt，httpOnly Cookie | 多用户，比赛归档按用户隔离（§9） |
 | 部署 | **本地开发 + Docker Compose 交付** | 开发：uv + Vite dev；交付：backend + mysql + nginx 三容器 |
 | 输出导出 | **Markdown + HTML 报告** | 由 Web 主形态降级为"赛后导出"功能（§11） |

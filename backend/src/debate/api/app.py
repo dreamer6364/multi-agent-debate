@@ -19,6 +19,7 @@ from ..db.session import init_db, make_engine, make_sessionmaker
 from ..engine.agents.loader import load_agents, load_topics
 from ..engine.llm.gateway import Gateway, extra_body_from_env
 from ..engine.schema import DebateFormat
+from ..services.cache import build_cache
 from ..services.debate_service import DebateService
 from .auth import router as auth_router
 from .debates import router as debates_router
@@ -68,6 +69,10 @@ async def _seed_builtin_topics(state: AppState) -> None:
                     is_builtin=True, owner_id=None,
                 ))
         await session.commit()
+    # 内置辩题出现在所有用户的列表里：播种后按前缀全量失效（Redis 跨重启持久，
+    # 只靠 TTL 会让新增内置辩题最长延迟一个 TTL 才可见）
+    if state.cache is not None:
+        await state.cache.delete_prefix("mad:topics:")
 
 
 def create_app(
@@ -80,6 +85,7 @@ def create_app(
     config_overrides: dict | None = None,
     now_fn=None,
     heartbeat_seconds: float | None = None,
+    cache=None,
 ) -> FastAPI:
     config_file = Path(config_path or os.environ.get("CONFIG_PATH", "config.yaml"))
     config = load_config(config_file)
@@ -121,6 +127,8 @@ def create_app(
         now_fn=now, cookie_secure=os.environ.get("COOKIE_SECURE") == "1",
         sse_heartbeat=heartbeat_seconds if heartbeat_seconds is not None
         else float(os.environ.get("SSE_HEARTBEAT_SECONDS", "15")),
+        # 只读旁路缓存：显式注入（测试）优先，否则按 REDIS_URL 构建（未配置回落进程内）
+        cache=cache if cache is not None else build_cache(),
     )
 
     @asynccontextmanager
@@ -140,6 +148,8 @@ def create_app(
         yield
         await service.shutdown()
         await engine.dispose()
+        if state.cache is not None:
+            await state.cache.aclose()
 
     app = FastAPI(title="Multi-Agent Debate API", version="0.1.0", lifespan=lifespan)
     if cors_origins:

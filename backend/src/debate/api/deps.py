@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import AppConfig
 from ..core.security import decode_token
 from ..db.models import User
+from ..services.cache import CacheBackend
 from ..services.debate_service import DebateService
 from .errors import ApiError
 
@@ -30,6 +31,7 @@ class AppState:
     now_fn: Callable
     cookie_secure: bool = False
     sse_heartbeat: float = 15.0
+    cache: CacheBackend | None = None  # 只读旁路缓存（services/cache.py；None = 不缓存）
     extras: dict = field(default_factory=dict)
 
 

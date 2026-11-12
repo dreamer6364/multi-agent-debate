@@ -19,10 +19,21 @@ services:
       retries: 20
     # 仅调试时暴露：ports: ["3306:3306"]
 
+  redis:
+    image: redis:7-alpine
+    # 可选只读缓存（B8 修订后）：未配置 REDIS_URL 时后端自动回落进程内缓存，
+    # 故障（本服务挂掉）时后端自动降级直读 DB，不影响可用性
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   backend:
     build: ./backend
     environment:
       MYSQL_URL: mysql+asyncmy://debate:${MYSQL_PASSWORD:-debate-change-me}@mysql:3306/mad?charset=utf8mb4
+      REDIS_URL: redis://redis:6379/0
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL}
       MODEL_DEBATER: ${MODEL_DEBATER:-glm-4.7}
@@ -32,6 +43,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
     depends_on:
       mysql:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   frontend:

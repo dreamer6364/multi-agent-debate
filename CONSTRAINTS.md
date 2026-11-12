@@ -1,4 +1,4 @@
-# 约束卡（Constraints Card）
+﻿# 约束卡（Constraints Card）
 
 | 文档信息 | 内容 |
 |---|---|
@@ -48,7 +48,7 @@
 | B5 | 事实来源 | DB 是唯一事实来源；SSE 只是推送；断线/刷新一律从 REST 补齐 | SSE 承载状态语义、前端本地状态当真相 |
 | B6 | Prompt 资产 | 角色/守则/辩题只存在于 `roles/ rules/ topics/` 文档 | system prompt 硬编码进 `.py` 字符串 |
 | B7 | 写入权 | `debates / speeches / scorecards` 只能由 `debate_runner`（引擎回调）写入 | `api/` 或前端路径写这几张表（stop 只改 status） |
-| B8 | 单实例假设 | EventBus 用进程内实现，预留替换接口 | 引入 Redis / 消息队列 / Celery |
+| B8 | 单实例假设 | EventBus 用进程内实现，预留替换接口；Redis 仅可作**只读旁路缓存**（`REDIS_URL` 可选配置，cache-aside，DB 仍是唯一事实来源，故障自动降级直读 DB） | 用 Redis 替换 EventBus / 引入消息队列 / Celery；让缓存承载状态语义（绕过 DB 读写） |
 | B9 | 引擎直跑 | `python -m debate`（CLI）与 Web 共用同一引擎 | CLI 另写一套流程逻辑 |
 
 ---
