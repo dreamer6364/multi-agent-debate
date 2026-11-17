@@ -12,6 +12,7 @@
 > 2026-11-17 ISS-014 C-4（覆盖率进 CI）收口：基线 **85%**（4474 语句/680 未覆盖）、298 passed；CI 上传 coverage.xml，暂不设门槛。
 > 2026-11-17 ISS-014 C-3 措辞降级：E2E 口述收紧为"1 条主链路冒烟 + 9 项 Vitest"，答辩卡 §6 + README 验收表同步（0 代码）。
 > 2026-11-17 ISS-014 A-5（可观测性）收口：trace_id 贯通 SSE/日志 + 每次调用一行 JSON，6 项回归；SPEC §4.10/§6.2 同步。
+> 面试准备文档：`issues/INTERVIEW-DEFENSE.md`（5+2 条追问口径）、`issues/RESUME-SHORT.md`（简历短版 + 3 个 STAR + 数字弹药）。
 
 ## 优先级定义
 
