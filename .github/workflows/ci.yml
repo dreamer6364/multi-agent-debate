@@ -1,0 +1,85 @@
+# 质量门禁 CI（ISS-014 B-1）：push/PR 时自动执行与本地约定相同的三件套。
+# 与本地门禁同源，避免"本地绿、clone 下来红"：
+#   backend : ruff check + pytest（MySQL 8 service，ISS-005 按 xdist worker 自动建库）
+#   frontend: tsc --noEmit + vitest + vite build
+# 已知 flake（ISS-014 B-4）：满载下存在"等待状态超时"类边界超时，失败集合随机、
+# 单跑必过——因此全量失败后自动复跑失败用例一次（--lf），两次均红才判失败。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: backend (ruff + pytest)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-password
+          MYSQL_DATABASE: mad
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+          --character-set-server=utf8mb4
+          --collation-server=utf8mb4_unicode_ci
+    env:
+      # root 账号：conftest 需 CREATE DATABASE 建 mad_test_gwN 隔离库（ISS-005）
+      TEST_MYSQL_URL: mysql+asyncmy://root:ci-root-password@127.0.0.1:3306/
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install dependencies（uv.lock 钉版本）
+        working-directory: backend
+        run: uv sync --frozen
+
+      - name: Lint（ruff 规则集钉在 pyproject，ISS-007）
+        working-directory: backend
+        run: uv run ruff check src tests
+
+      - name: Test（pytest -n 4；失败自动复跑一次甄别 flake）
+        working-directory: backend
+        run: |
+          if ! uv run pytest -q -n 4; then
+            echo "::warning::全量首次失败，复跑失败用例（ISS-014 B-4 已知边界 flake）"
+            uv run pytest -q --lf -n 4
+          fi
+
+  frontend:
+    name: frontend (tsc + vitest + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies（package-lock 钉版本）
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Build
+        run: npx vite build

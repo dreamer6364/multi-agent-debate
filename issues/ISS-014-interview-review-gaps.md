@@ -1,6 +1,6 @@
 # ISS-014（评审）面试官视角：AI 应用岗短板与工程硬伤清单
 
-**状态**：待修复（本文档为"面试官视角评审"产出，非测试复现缺陷；逐条整改后更新状态）
+**状态**：部分修复（B-1 已修，其余 14 条待修复；逐条整改后更新状态）
 **评审日期**：2026-11-17
 **评审基线**：main @ `29a8c3d`（Redis 缓存接入后）
 **性质**：与 ISS-001~013 的"测试复现缺陷"不同——本清单是**招聘方视角**的审查结论，按"面试被追问的杀伤力"排序。每条含：事实证据、面试官潜台词、修复建议、预估工时。
@@ -63,7 +63,7 @@
 - **面试官潜台词**："你的门禁在哪一步？我 clone 下来跑红算谁的？"
 - **修复建议**：GitHub Actions 单 workflow 三 job（backend pytest+ruff / frontend tsc+vitest / vite build）。
 - **预估工时**：0.5h
-- **状态**：待修复
+- **状态**：✅ 已修复（`.github/workflows/ci.yml`，backend job：MySQL 8 service + root 自动建 `mad_test_gwN` 隔离库 + `uv sync --frozen` + ruff + pytest -n 4（失败自动 `--lf` 复跑一次甄别 B-4 flake）；frontend job：`npm ci` + tsc + vitest + vite build；YAML 解析、`uv lock --check`、`uv run ruff`/`uv run pytest` 本地等价命令均验证通过。注：无 remote，Actions 实际首跑待推送到 GitHub 后确认）
 
 ### B-2（P0）Docker 构建从未实际验证
 - **事实**：ISS-004 修复后 docker daemon 一直未启动，`docker build`/`compose up --build` 至今未跑通（`docker compose config --quiet` 仅静态校验通过）；"一键交付"是未兑现承诺。
@@ -133,7 +133,7 @@
 
 | 优先级 | 编号 | 项目 | 工时 | 消除的追问风险 |
 |--------|------|------|------|----------------|
-| 🔴 P0 | B-1 | GitHub Actions 三 job | 0.5h | "门禁在哪一步" |
+| 🔴 P0 | B-1 | GitHub Actions 三 job | 0.5h | ✅ 已修——"门禁在哪一步" |
 | 🔴 P0 | B-2 | `docker compose up --build` 实测 | 0.5h | 现场 demo 打脸 |
 | 🔴 P0 | A-1 | golden set + LLM-as-judge 评分脚本 | 2~3h | **"prompt 改了怎么证明没变差"（AI 岗核心）** |
 | 🟡 P1 | B-3 | alembic 进启动链路 | 0.5h | "加一列怎么上线"（真 bug） |
