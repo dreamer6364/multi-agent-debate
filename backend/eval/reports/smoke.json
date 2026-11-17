@@ -1,0 +1,81 @@
+{
+  "label": "smoke",
+  "created_at": "2026-11-17T15:01:23",
+  "format": "lite",
+  "golden_count": 1,
+  "items": [
+    {
+      "id": "g01",
+      "domain": "科技",
+      "title": "人工智能时代，人类应该更依赖技术 / 更保持警惕",
+      "debate_status": "failed",
+      "error": "连续 5 次 LLM 降级，触发熔断",
+      "winner": null,
+      "speech_count": 6,
+      "judge": {
+        "stance_adherence": {
+          "pro": {
+            "score": 0,
+            "reason": "正方所有辩手均未发言，无法评估立场坚守情况"
+          },
+          "con": {
+            "score": 0,
+            "reason": "反方所有辩手均未发言，无法评估立场坚守情况"
+          }
+        },
+        "citation_integrity": {
+          "pro": {
+            "score": 0,
+            "reason": "正方所有辩手均未发言，无法评估引用诚信情况"
+          },
+          "con": {
+            "score": 0,
+            "reason": "反方所有辩手均未发言，无法评估引用诚信情况"
+          }
+        },
+        "argument_quality": {
+          "pro": {
+            "score": 0,
+            "reason": "正方所有辩手均未发言，无法评估论证质量情况"
+          },
+          "con": {
+            "score": 0,
+            "reason": "反方所有辩手均未发言，无法评估论证质量情况"
+          }
+        },
+        "degraded": false,
+        "note": null
+      }
+    }
+  ],
+  "aggregate": {
+    "graded": 1,
+    "degraded": 0,
+    "dimensions": {
+      "stance_adherence": {
+        "pro": 0.0,
+        "con": 0.0,
+        "delta": 0.0
+      },
+      "citation_integrity": {
+        "pro": 0.0,
+        "con": 0.0,
+        "delta": 0.0
+      },
+      "argument_quality": {
+        "pro": 0.0,
+        "con": 0.0,
+        "delta": 0.0
+      }
+    },
+    "overall": {
+      "pro": 0.0,
+      "con": 0.0
+    }
+  },
+  "llm_usage": {
+    "calls": 5,
+    "prompt_tokens": 4049,
+    "completion_tokens": 740
+  }
+}
