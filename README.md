@@ -74,9 +74,21 @@ docker compose up -d
 ## 测试
 
 ```bash
-cd backend  && .venv/Scripts/python -m pytest -q    # 83 项：引擎/评分/计时/打断/SSE/API
+cd backend  && .venv/Scripts/python -m pytest -q    # 274 项：引擎/评分/计时/打断/SSE/API/评测
 cd frontend && npm test                              # 9 项：直播 Hook/组件/XSS 防护
 ```
+
+## 评测（Prompt 效果回归，ISS-014 A-1）
+
+```bash
+cd backend
+.venv/Scripts/python -m eval.run_eval --dry-run                     # 只验资产（golden set 10 条 + 13 角色 Prompt），不出网
+.venv/Scripts/python -m eval.run_eval --topics g01 --format lite --label smoke   # 单题真实 LLM 冒烟
+.venv/Scripts/python -m eval.run_eval --limit 5 --label before      # prompt 改动前基线；改后再跑 --label after 对比
+```
+
+报告落盘 `backend/eval/reports/<label>.json`：LLM-as-judge 三维评分（立场坚守 / 引用诚信 / 论证质量，双方各 0~10）
++ 全场实录 + token 用量；`--label` 分别落盘即成"改前/改后"对比，回答"prompt 改了怎么证明没变差"。
 
 ## 一场比赛怎么跑
 
@@ -112,6 +124,7 @@ cd frontend && npm test                              # 9 项：直播 Hook/组�
 ```
 backend/   FastAPI + LangGraph 引擎 + SQLModel 持久层 + tests（pytest）
   rules/ roles/ topics/    文档资产 = 运行时 Prompt 源
+  eval/                    golden set + LLM-as-judge 三维评测（ISS-014 A-1）
   scripts/dev_uvicorn.py   开发档：FakeLLM Web 服务器（零 token 联调）
 frontend/  React + Vite + AntD SPA + tests（Vitest）
 docker-compose.yml         backend + mysql + nginx 三容器

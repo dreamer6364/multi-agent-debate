@@ -1,6 +1,6 @@
 # ISS-014（评审）面试官视角：AI 应用岗短板与工程硬伤清单
 
-**状态**：部分修复（B-1、B-3 已修，其余 13 条待修复；逐条整改后更新状态）
+**状态**：部分修复（B-1、B-3、A-1 已修，其余 12 条待修复；逐条整改后更新状态）
 **评审日期**：2026-11-17
 **评审基线**：main @ `29a8c3d`（Redis 缓存接入后）
 **性质**：与 ISS-001~013 的"测试复现缺陷"不同——本清单是**招聘方视角**的审查结论，按"面试被追问的杀伤力"排序。每条含：事实证据、面试官潜台词、修复建议、预估工时。
@@ -20,11 +20,17 @@
 ## 一、AI 应用岗专属短板（最危险）
 
 ### A-1（P0）无 Prompt/效果评测体系
-- **事实**：`git grep eval/prompt_version/regression_set -- backend/src` = 0 命中。提示词文件化（roles/rules/topics）只保证**结构**可校验，不保证**质量**可回归；FakeLLM 测试测的是流程编排，不是输出质量。
+- **事实**：~~`git grep eval/prompt_version/regression_set -- backend/src` = 0 命中~~ → **已建 `backend/eval/` 评测包**：golden set 10 条 + LLM-as-judge 三维评分脚本 + 报告落盘。提示词文件化（roles/rules/topics）保证**结构**可校验，评测体系保证**质量**可回归；FakeLLM 测试测流程编排，golden set 测输出质量。
 - **面试官潜台词**："你改了一个词的 prompt，怎么证明立场稳定性没崩？"
 - **修复建议**：建 10~30 条黄金辩题集（golden set）+ LLM-as-judge 三维评分脚本（立场一致 / 引用属实 / 逻辑谬误），prompt 改动前后跑分对比，分数落盘可查。
 - **预估工时**：2~3h（10 条起步）
-- **状态**：待修复
+- **状态**：✅ 已修复（2026-11-17）
+  - **资产**：`backend/eval/golden_set.jsonl` 10 条——3 条与内置 `topics/*.md` 逐字段对齐（单测锁定防漂移）+ 7 条新领域（教育/职场/医疗/环境/生活/文化等）防过拟合内置三题；
+  - **judge**：`eval/judge.py` 三维评分（`stance_adherence` 立场坚守 / `citation_integrity` 引用诚信 / `argument_quality` 论证质量含谬误密度），双方各 0~10 + 理由；走 `tier="judge"` + `temperature=0.1`（低随机利于对比）；解析围栏剥离 → 首{末}截取 → 逐维严格校验 → 失败带纠错反馈重试 → 耗尽降级 `degraded=True`（单条失败不中断整轮，聚合剔除、全降级记 None 不拿 0 分冒充）；
+  - **CLI**：`eval/run_eval.py`——`run_debate → judge → 报告落盘 eval/reports/<label>.json`（三维均分 + 实录 + token 用量）；`--label` 前后跑分对比、`--topics/--limit` 控成本、`--dry-run` 验资产（golden set + 配置 + 13 角色 Prompt，不出网）；
+  - **门禁**：ruff 范围扩为 `src tests eval`（CI workflow + pyproject + issues/README）；
+  - **测试**：`tests/unit/test_eval.py` 16 项（资产完整性/同步/坏行拒绝、judge 合法/围栏/越界/空理由、重试反馈与降级、聚合数学、CLI dry-run）；全量 pytest **274 passed** + ruff 0；
+  - **冒烟证据**（2026-11-17，真实 GLM glm-4.5-flash）：`python -m eval.run_eval --topics g01 --format lite --label smoke-fixed` → **比赛 finished、23 条发言、judge 三维全出分**（立场坚守 正 7.0 / 反 8.0；引用诚信 8.0 / 9.0；论证质量 6.0 / 8.0；总均分 7.0 / 8.33），31 次调用、139,134 prompt tokens，报告 `eval/reports/smoke-fixed.json`（自含全场实录）。前两次冒烟因 ISS-015 内容过滤熔断（`smoke.json`/`smoke2.json`：比赛 failed 时 judge 对空实录如实给 0 分并写明理由、链路不中断——降级语义本身也得到验证）；资产修复后复跑即绿，**这正是一次"改动前后跑分对比"的实战演示**。
 
 ### A-2（P0）"多 Agent"实为固定工作流，易被质疑概念
 - **事实**：LangGraph 图为预定义 13 环节 DAG，节点序固定，Agent 间无动态协商/规划/自主工具路由。
@@ -135,7 +141,7 @@
 |--------|------|------|------|----------------|
 | 🔴 P0 | B-1 | GitHub Actions 三 job | 0.5h | ✅ 已修——"门禁在哪一步" |
 | 🔴 P0 | B-2 | `docker compose up --build` 实测 | 0.5h | 现场 demo 打脸 |
-| 🔴 P0 | A-1 | golden set + LLM-as-judge 评分脚本 | 2~3h | **"prompt 改了怎么证明没变差"（AI 岗核心）** |
+| 🔴 P0 | A-1 | golden set + LLM-as-judge 评分脚本 | 2~3h | ✅ 已修——**"prompt 改了怎么证明没变差"（AI 岗核心）** |
 | 🟡 P1 | B-3 | alembic 进启动链路 | 0.5h | ✅ 已修——"加一列怎么上线"（真 bug） |
 | 🟡 P1 | A-4 | 单赛场次 token 上限 + 超限终止 | 1~1.5h | "账单失控谁兜" |
 | 🟡 P1 | C-1 | 登录失败限流 | 1h | 暴力破解追问 |
@@ -152,8 +158,8 @@
 ## 复现/核验命令
 
 ```powershell
-# A-1 无评测体系
-git grep -iE "eval|prompt_version|regression_set" -- backend/src   # 期望 0 命中
+# A-1 评测体系（已建 backend/eval/）
+cd backend; .venv/Scripts/python -m eval.run_eval --dry-run   # 期望：golden set 10 条 + 13 角色 OK
 
 # B-1 无 CI
 Test-Path .github/workflows                                        # 期望 False

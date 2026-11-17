@@ -47,7 +47,7 @@ jobs:
 
       - name: Lint（ruff 规则集钉在 pyproject，ISS-007）
         working-directory: backend
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests eval
 
       - name: Test（pytest -n 4；失败自动复跑一次甄别 flake）
         working-directory: backend

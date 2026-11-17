@@ -51,7 +51,7 @@ asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 100
-src = ["src", "tests"]
+src = ["src", "tests", "eval"]
 
 [tool.ruff.lint]
 # ISS-007：显式钉住规则集。ruff 0.17 起默认规则大幅扩张（ANN/BLE/PERF/RUF 等并非本项目
