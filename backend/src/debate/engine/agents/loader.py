@@ -33,19 +33,22 @@ def _def(role_id: str, position_cn: str, camp: Camp, llm: bool, *keywords: str) 
 
 
 ROLE_DEFS: dict[str, RoleDef] = {}
-_def("pro-1", "正方一辩 · 立论手", Camp.PRO, True, "判准")
-_def("pro-2", "正方二辩 · 驳论手", Camp.PRO, True, "打断")
-_def("pro-3", "正方三辩 · 攻辩手", Camp.PRO, True, "盘问")
-_def("pro-4", "正方四辩 · 总结手", Camp.PRO, True, "复盘")
-_def("con-1", "反方一辩 · 立论手", Camp.CON, True, "判准")
-_def("con-2", "反方二辩 · 驳论手", Camp.CON, True, "打断")
-_def("con-3", "反方三辩 · 攻辩手", Camp.CON, True, "盘问")
-_def("con-4", "反方四辩 · 总结手", Camp.CON, True, "复盘")
-_def("chair", "主席", Camp.NEUTRAL, True, "报幕")
+# v1.1（AGENT_CONSTRAINTS §8.4）：义务关键词在 §5 首条义务之外同时覆盖工具策略——
+# 8 辩手必须写差异化取材策略（含"检索"）、评委/主席必须写无工具声明，
+# 漏改任何角色文件即启动 fail-fast，工具口径不因漏改而退化。
+_def("pro-1", "正方一辩 · 立论手", Camp.PRO, True, "判准", "检索")
+_def("pro-2", "正方二辩 · 驳论手", Camp.PRO, True, "打断", "检索")
+_def("pro-3", "正方三辩 · 攻辩手", Camp.PRO, True, "盘问", "检索")
+_def("pro-4", "正方四辩 · 总结手", Camp.PRO, True, "复盘", "检索")
+_def("con-1", "反方一辩 · 立论手", Camp.CON, True, "判准", "检索")
+_def("con-2", "反方二辩 · 驳论手", Camp.CON, True, "打断", "检索")
+_def("con-3", "反方三辩 · 攻辩手", Camp.CON, True, "盘问", "检索")
+_def("con-4", "反方四辩 · 总结手", Camp.CON, True, "复盘", "检索")
+_def("chair", "主席", Camp.NEUTRAL, True, "报幕", "检索")
 _def("timekeeper", "计时员", Camp.NEUTRAL, False, "计时")
-_def("judge-logic", "逻辑评委", Camp.NEUTRAL, True, "打分")
-_def("judge-content", "内容评委", Camp.NEUTRAL, True, "打分")
-_def("judge-expression", "表达评委", Camp.NEUTRAL, True, "打分")
+_def("judge-logic", "逻辑评委", Camp.NEUTRAL, True, "打分", "没有检索工具")
+_def("judge-content", "内容评委", Camp.NEUTRAL, True, "打分", "没有检索工具")
+_def("judge-expression", "表达评委", Camp.NEUTRAL, True, "打分", "没有检索工具")
 
 
 class AgentSpec(BaseModel):

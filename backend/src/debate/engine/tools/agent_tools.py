@@ -173,6 +173,8 @@ def tool_usage_instruction(specs: list[dict[str, Any]], remaining_words: int) ->
         lines.append("- check_argument(text)：对核心论证段做谬误自检，检出的瑕疵需修改后再输出。")
     lines.append(f"- check_time()：查询剩余字数（当前约 {remaining_words} 字）。")
     lines.append("工具结果只作素材：引用须标注来源名，不得虚构工具之外的数据；无需工具时直接输出正文。")
+    lines.append("各辩位取材重点不同，按你角色文件「行为规则」中的工具取材策略执行"
+                 "（立论检索定义与判准支撑、驳论检索对方论点反证、攻辩先检索再设计数据逼问、总结自检归谬段）。")
     return "\n".join(lines)
 
 
