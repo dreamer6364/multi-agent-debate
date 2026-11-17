@@ -1,6 +1,6 @@
 # ISS-014（评审）面试官视角：AI 应用岗短板与工程硬伤清单
 
-**状态**：部分修复（B-1 已修，其余 14 条待修复；逐条整改后更新状态）
+**状态**：部分修复（B-1、B-3 已修，其余 13 条待修复；逐条整改后更新状态）
 **评审日期**：2026-11-17
 **评审基线**：main @ `29a8c3d`（Redis 缓存接入后）
 **性质**：与 ISS-001~013 的"测试复现缺陷"不同——本清单是**招聘方视角**的审查结论，按"面试被追问的杀伤力"排序。每条含：事实证据、面试官潜台词、修复建议、预估工时。
@@ -77,7 +77,7 @@
 - **面试官潜台词**："数据库加一列，你怎么上线？" 答"create_all"直接暴露没做过真实迭代。
 - **修复建议**：compose/backend 启动命令改 `alembic upgrade head && uvicorn ...`（或 entrypoint 脚本），Dockerfile 同步。
 - **预估工时**：0.5h
-- **状态**：待修复
+- **状态**：✅ 已修复（`backend/Dockerfile`：COPY `alembic.ini`/`alembic/` 资产，CMD 改 `sh -c "alembic upgrade head && exec uvicorn ..."`；两个迁移幂等化——baseline 逐表 `has_table` 跳过、fallacies 列 `get_columns` 跳过，兼容历史 create_all 引导库不撞"表已存在"；新增 `tests/unit/test_migrations.py` 2 项回归：空库 upgrade 后 schema 与 `SQLModel.metadata.create_all` **逐列一致**（防"改模型忘写迁移"，实测 SCHEMA_IDENTICAL）+ 历史库幂等 upgrade 落 head、重复 upgrade no-op；README 生产交付段同步。注：镜像内实跑待 B-2 docker daemon 就绪）
 
 ### B-4（P1）测试套件不稳定（边界 flake 已知未根治）
 - **事实**：2026-11-12 实测——全量 `-n 4` 连续 4 轮失败集合随机变化（2→4→2→3 个），全部为 `等待状态超时`，单跑全过；stash A/B 证明基线同样失败；靠 `wait_status` 15s→30s（ISS-005）压制；单轮全量 6~8 分钟。根因：测试含真实 wall-clock 等待（`conftest.py:82 time.sleep(0.05)`、引擎真实计时路径），满载即越线。
@@ -136,7 +136,7 @@
 | 🔴 P0 | B-1 | GitHub Actions 三 job | 0.5h | ✅ 已修——"门禁在哪一步" |
 | 🔴 P0 | B-2 | `docker compose up --build` 实测 | 0.5h | 现场 demo 打脸 |
 | 🔴 P0 | A-1 | golden set + LLM-as-judge 评分脚本 | 2~3h | **"prompt 改了怎么证明没变差"（AI 岗核心）** |
-| 🟡 P1 | B-3 | alembic 进启动链路 | 0.5h | "加一列怎么上线"（真 bug） |
+| 🟡 P1 | B-3 | alembic 进启动链路 | 0.5h | ✅ 已修——"加一列怎么上线"（真 bug） |
 | 🟡 P1 | A-4 | 单赛场次 token 上限 + 超限终止 | 1~1.5h | "账单失控谁兜" |
 | 🟡 P1 | C-1 | 登录失败限流 | 1h | 暴力破解追问 |
 | 🟡 P1 | A-2/A-3/B-5/C-2/C-5 | 答辩口径整理（0 代码） | 0.5h | 概念/取舍类追问 |

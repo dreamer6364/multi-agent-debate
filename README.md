@@ -67,6 +67,10 @@ docker compose up -d
 # 访问 http://localhost（nginx 托管前端 + 反代 /api，SSE 已关缓冲）
 ```
 
+后端容器启动时先执行 `alembic upgrade head` 再起 uvicorn（ISS-014 B-3）：
+表结构变更只走 Alembic 迁移（CONSTRAINTS V4），空库由迁移完成全部建表，
+历史 `create_all` 引导的旧库迁移已幂等兼容（版本对齐，不重建表）。
+
 ## 测试
 
 ```bash

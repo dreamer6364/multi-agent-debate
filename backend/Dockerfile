@@ -16,5 +16,11 @@ COPY roles ./roles
 COPY topics ./topics
 COPY knowledge ./knowledge
 
+# 迁移资产（ISS-014 B-3）：生产启动先 upgrade 再起服务——create_all 对已存在表
+# 不会加列，表结构变更必须走 Alembic（CONSTRAINTS V4）。空库由迁移完成全部建表；
+# 历史 create_all 库迁移已幂等化（版本对齐，不炸“表已存在”）。
+COPY alembic.ini ./
+COPY alembic ./alembic
+
 EXPOSE 8000
-CMD ["uvicorn", "debate.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn debate.api.app:create_app --factory --host 0.0.0.0 --port 8000"]

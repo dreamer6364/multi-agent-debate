@@ -32,7 +32,7 @@
 | [ISS-011](ISS-011-stop-finalize-race.md) | P3 | 已修（v2.9.4） | stop 与终态落库竞态：`_write_final` 无条件覆盖 status | `services/debate_service.py:383` |
 | [ISS-012](ISS-012-review-residual-p3.md) | P3 | 已修（v2.9.5） | v2.9.4 全项目体检遗留低危项（10 条语义/边界瑕疵，无功能错误） | 见文档 |
 | [ISS-013](ISS-013-sse-tests-proxy-hijack.md) | P1-测试基建 | 已修（v2.9.4） | SSE 集成测试被系统代理劫持：长挂的 7 个 `test_sse` 失败根因 | `tests/api/conftest.py:210` |
-| [ISS-014](ISS-014-interview-review-gaps.md) | 评审-P0~P2 | 部分修复（B-1 已修） | 面试官视角评审：AI 应用岗短板与工程硬伤清单（15 条，含无 CI、迁移未进部署链、无 Prompt 评测体系） | 见文档 |
+| [ISS-014](ISS-014-interview-review-gaps.md) | 评审-P0~P2 | 部分修复（B-1/B-3 已修） | 面试官视角评审：AI 应用岗短板与工程硬伤清单（15 条，含无 CI、迁移未进部署链、无 Prompt 评测体系） | 见文档 |
 
 ## 测试通过项（无问题记录，防止重复排查）
 
