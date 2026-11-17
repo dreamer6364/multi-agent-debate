@@ -74,7 +74,7 @@ docker compose up -d
 ## 测试
 
 ```bash
-cd backend  && .venv/Scripts/python -m pytest -q    # 274 项：引擎/评分/计时/打断/SSE/API/评测
+cd backend  && .venv/Scripts/python -m pytest -q    # 285 项：引擎/评分/计时/打断/SSE/API/评测
 cd frontend && npm test                              # 9 项：直播 Hook/组件/XSS 防护
 ```
 

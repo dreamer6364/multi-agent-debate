@@ -4,6 +4,7 @@ v2.6.2：文本型工具调用（伪 XML 混进正文）的解析、剥离与流
 import pytest
 
 from debate.engine.llm.gateway import (
+    ContentFiltered,
     Gateway,
     LLMExhausted,
     _StreamToolFilter,
@@ -136,6 +137,134 @@ def test_gateway_short_backoff_on_other_errors():
     assert gateway.complete([{"role": "user", "content": "x"}],
                             tier="debater", temperature=0.5, max_tokens=64).text == "OK"
     assert waits == [1.0]  # 普通错误仍指数退避
+
+
+# ---- ISS-015 #2：不可重试错误 fail-fast（内容过滤 / 参数/鉴权类 4xx 首打即抛）----
+
+FILTER_MSG = (
+    "Error code: 400 - {'contentFilter': [{'level': 1, 'role': 'user'}], "
+    "'error': {'code': '1301', 'message': '系统检测到不安全内容'}}"
+)
+
+
+class FakeContentFilterError(Exception):
+    """模拟 openai.BadRequestError 的 contentFilter 400（按消息匹配，不依赖 openai 导入）。"""
+
+
+class FakeBadRequestError(Exception):
+    """模拟 openai.BadRequestError（按类名匹配）。"""
+
+
+def test_content_filtered_is_llm_exhausted_subclass():
+    """不认识 ContentFiltered 的既有调用方仍按 LLMExhausted 占位降级兜底（SPEC §4.9）。"""
+    assert issubclass(ContentFiltered, LLMExhausted)
+
+
+def test_gateway_fail_fast_on_content_filter_no_retry_no_backoff():
+    """内容过滤：首打即抛 ContentFiltered——不进 3 次重试、不烧退避（修复前 4 连打白烧）。"""
+    class Filtered:
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, messages, **kwargs):
+            self.calls += 1
+            raise FakeContentFilterError(FILTER_MSG)
+
+    waits: list[float] = []
+    backend = Filtered()
+    gateway = Gateway(backend=backend, model_debater="d", model_official="o",
+                      max_retries=3, sleep=waits.append)
+    with pytest.raises(ContentFiltered):
+        gateway.complete(MSG, tier="debater", temperature=0.5, max_tokens=64)
+    assert backend.calls == 1
+    assert waits == []
+
+
+def test_gateway_fail_fast_on_content_filter_stream():
+    """流式路径与 complete 同语义：内容过滤首打即抛。"""
+    class FilteredStream:
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, messages, **kwargs):
+            return "不应走到这里"
+
+        def stream(self, messages, **kwargs):
+            self.calls += 1
+            raise FakeContentFilterError(FILTER_MSG)  # 400 在建连时即拒，先于任何 chunk
+
+    waits: list[float] = []
+    backend = FilteredStream()
+    gateway = Gateway(backend=backend, model_debater="d", model_official="o",
+                      max_retries=3, sleep=waits.append)
+    with pytest.raises(ContentFiltered):
+        list(gateway.stream(MSG, tier="debater", temperature=0.5, max_tokens=64))
+    assert backend.calls == 1
+    assert waits == []
+
+
+def test_gateway_fail_fast_on_fatal_4xx_class_name():
+    """参数/鉴权类 4xx（按异常类名识别）：抛 LLMExhausted 且不重试、不退避。"""
+    class BadAuth:
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, messages, **kwargs):
+            self.calls += 1
+            raise FakeBadRequestError("invalid api key")
+
+    waits: list[float] = []
+    backend = BadAuth()
+    gateway = Gateway(backend=backend, model_debater="d", model_official="o",
+                      max_retries=3, sleep=waits.append)
+    with pytest.raises(LLMExhausted) as exc_info:
+        gateway.complete(MSG, tier="debater", temperature=0.5, max_tokens=64)
+    assert not isinstance(exc_info.value, ContentFiltered)  # 非过滤，不给引擎去证据回退信号
+    assert "不可重试" in str(exc_info.value)
+    assert backend.calls == 1
+    assert waits == []
+
+
+def test_gateway_fail_fast_on_fatal_4xx_error_code_message():
+    """按消息形态识别（裸 RuntimeError 模拟未导入 openai 类名的场景）。"""
+    class BadRequest:
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, messages, **kwargs):
+            self.calls += 1
+            raise RuntimeError("Error code: 422 - {'error': 'Unprocessable Entity'}")
+
+    backend = BadRequest()
+    gateway = Gateway(backend=backend, model_debater="d", model_official="o",
+                      max_retries=3, sleep=lambda s: None)
+    with pytest.raises(LLMExhausted):
+        gateway.complete(MSG, tier="debater", temperature=0.5, max_tokens=64)
+    assert backend.calls == 1
+
+
+def test_gateway_transient_429_and_5xx_still_retry():
+    """回归护栏：fail-fast 不误伤可重试错误——429 与 5xx 仍走满重试与长退避。"""
+    class FlakyTransient:
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, messages, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise FakeRateLimitError("429 Too Many Requests")
+            if self.calls == 2:
+                raise RuntimeError("Error code: 500 - server error")
+            return "恢复"
+
+    waits: list[float] = []
+    backend = FlakyTransient()
+    gateway = Gateway(backend=backend, model_debater="d", model_official="o",
+                      max_retries=3, sleep=waits.append)
+    result = gateway.complete(MSG, tier="debater", temperature=0.5, max_tokens=64)
+    assert result.text == "恢复"
+    assert backend.calls == 3
+    assert waits == [90.0, 2.0]  # 429 长退避 + 5xx 指数退避，均未被 fail-fast 截断
 
 
 def test_gateway_throttles_by_min_interval():

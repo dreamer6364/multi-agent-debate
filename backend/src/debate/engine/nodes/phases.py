@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from ..agents.context import build_debater_messages, estimate_tokens
 from ..rag.retriever import detect_topic_domain, render_evidence
-from ..llm.gateway import LLMExhausted, LLMResult, strip_tool_artifacts
+from ..llm.gateway import ContentFiltered, LLMExhausted, LLMResult, strip_tool_artifacts
 from ..procedure import PHASE_NAMES, PHASE_NUMBERS, minutes_for
 from ..runtime import DebateAborted, DebateContext
 from ..schema import Camp, Speech
@@ -250,17 +250,19 @@ def _ask(
     if not allow_interrupt_marker:
         extra_rules += _NO_INTERRUPT_RULE
     full_instruction = f"{instruction}\n{extra_rules}{_style_hint(ctx, speaker)}（本次发言预算约 {cap_words} 字）"
+    evidence_text = render_evidence(camp_cards)
     messages = build_debater_messages(
         spec=spec,
         topic=ctx.topic,
         digest_text=digest_text,
         recent=recent,
-        evidence_text=render_evidence(camp_cards),
+        evidence_text=evidence_text,
         instruction=full_instruction,
         recent_k=config.context.recent_speeches,
         max_input_tokens=config.context.max_input_tokens,
     )
     holder = {"attempt": 0, "streamed": False}
+    evidence_degraded = False  # ISS-015 #3：去证据回退成功时置位，落旁注"证据降级"
     try:
         if tools_enabled_for(ctx, phase_key):
             # 工具循环路径（v1.8）：非流式，LLM 可先调工具取材/自检再输出正文；
@@ -307,6 +309,36 @@ def _ask(
                 max_tokens=int(cap_words * 1.6) + 64,
             )
         ctx.degradation_streak = 0
+    except ContentFiltered:
+        # ISS-015 #3：证据注入可能命中供应商内容黑名单（黑盒且会演进，其余卡片未逐一探过）——
+        # 去证据重建 messages 重试一次：成功则本条发言正常上屏（旁注"证据降级"），
+        # 仍失败或本就无证据可去才落占位降级，单点误拦不再熔断整场（SPEC §4.9）。
+        result = None
+        if camp_cards:
+            try:
+                result = ctx.gateway.complete(
+                    build_debater_messages(
+                        spec=spec, topic=ctx.topic, digest_text=digest_text, recent=recent,
+                        evidence_text="", instruction=full_instruction,
+                        recent_k=config.context.recent_speeches,
+                        max_input_tokens=config.context.max_input_tokens,
+                    ),
+                    tier="debater",
+                    temperature=config.model.temperature.debater,
+                    max_tokens=int(cap_words * 1.6) + 64,
+                )
+            except LLMExhausted:  # 回退后仍被拦（过滤源不只证据）→ 走占位
+                result = None
+        if result is None:
+            ctx.record_degradation()
+            ctx.emit("error", message="LLM 降级：该辩手发言被内容过滤拦截")
+            placeholder = "[系统] 该辩手发言被内容过滤拦截"
+            return Speech(
+                seq=seq, phase=phase, phase_name=phase_name, speaker=speaker, camp=spec.camp,
+                text=placeholder, side_notes=["LLM 降级", "内容过滤拦截"], word_count=len(placeholder),
+            )
+        evidence_degraded = True
+        ctx.degradation_streak = 0
     except LLMExhausted:
         ctx.record_degradation()
         ctx.emit("error", message="LLM 降级：该辩手超时未发言")
@@ -324,7 +356,8 @@ def _ask(
         # v2.9.1 格式防线：带纠正指令重试一次；仍输出 JSON 则降级占位，绝不上屏原始数据
         retry_messages = build_debater_messages(
             spec=spec, topic=ctx.topic, digest_text=digest_text, recent=recent,
-            evidence_text=render_evidence(camp_cards),
+            # 已走去证据回退的发言：JSON 纠偏重试不得再注入已知被拦的证据源
+            evidence_text="" if evidence_degraded else evidence_text,
             instruction=f"{full_instruction}\n{_JSON_RETRY_NOTE}",
             recent_k=config.context.recent_speeches,
             max_input_tokens=config.context.max_input_tokens,
@@ -349,6 +382,8 @@ def _ask(
                 text=placeholder, side_notes=["LLM 格式异常"], word_count=len(placeholder),
             )
     notes = scan(text, config.conduct.abuse_keywords)
+    if evidence_degraded:
+        notes.append("证据降级")  # ISS-015 #3：本条未用证据卡（过滤回退），评委/导出可见
     # P2-4 数据诚信线索：精确百分比/研究结论句若未标注平台白名单来源 → 旁注"数据待查"交评委核验
     notes.extend(flag_unverified_claims(text, _evidence_sources(ctx)))
     if not allow_interrupt_marker:

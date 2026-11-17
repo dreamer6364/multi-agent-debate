@@ -1,4 +1,5 @@
-"""LLM 网关（SPEC §7 / ARCH §8）：OpenAI 兼容协议，重试→耗尽抛 LLMExhausted。
+"""LLM 网关（SPEC §7 / ARCH §8）：OpenAI 兼容协议，重试→耗尽抛 LLMExhausted；
+不可重试错误（内容过滤/参数/鉴权类 4xx）首打即抛、不进重试（ISS-015 #2，SPEC §4.9）。
 
 backend 注入点：传入 tests.fakes.FakeLLM 即为测试路径（FakeLLM.complete 签名兼容）；
 backend=None 时按 .env 懒加载 openai 客户端（M2 冒烟起用）。
@@ -23,6 +24,14 @@ class LLMResult:
 
 class LLMExhausted(RuntimeError):
     """重试次数耗尽，由引擎节点落占位降级（SPEC §4.9）。"""
+
+
+class ContentFiltered(LLMExhausted):
+    """内容过滤误拦（ISS-015 #2）：供应商黑名单命中，同 prompt 重试必然同结果 → 首打即抛。
+
+    继承 LLMExhausted：不认识本异常的既有调用方（officials/judges/runner 等）
+    仍按占位降级语义兜底；引擎层先于 LLMExhausted 捕获它做"去证据回退"（ISS-015 #3）。
+    """
 
 
 # ---- 文本型工具调用（部分 OpenAI 兼容后端不回原生 tool_calls，而是把调用以伪 XML 写进正文） ----
@@ -217,9 +226,34 @@ class Gateway:
                 return result
             except Exception as exc:  # noqa: BLE001 —— 统一重试，最终以 LLMExhausted 出口
                 last_exc = exc
+                fail_fast = self._fail_fast(exc)
+                if fail_fast is not None:
+                    raise fail_fast from exc  # ISS-015 #2：不可重试错误不进重试/退避
                 if attempt < self.max_retries:
                     self.sleep(self._backoff(attempt, exc))
         raise LLMExhausted(f"LLM 重试 {self.max_retries} 次后仍失败: {last_exc}") from last_exc
+
+    @staticmethod
+    def _fail_fast(exc: Exception) -> LLMExhausted | None:
+        """不可重试错误分类（ISS-015 #2）：应立即抛出的异常；可重试 → None。
+
+        - 内容过滤（contentFilter 400，如 GLM 1301 黑名单误拦）→ ``ContentFiltered``——
+          重试同 prompt 必然同结果，且上层需要它做"去证据回退"；
+        - 参数/鉴权类 4xx（400/401/403/404/422）→ ``LLMExhausted`` 直接失败，
+          不烧 3 次重试 + 退避（修复前每次白烧一整串调用）。
+        归类只做尽力识别：供应商错误形态是黑盒且会演进，识别漏了仍走满重试
+        （与修复前一致），由引擎层去证据回退兜底，不会更差。
+        """
+        msg = str(exc)
+        if "contentFilter" in msg:
+            return ContentFiltered(f"内容过滤拦截（同 prompt 重试无益）: {exc}")
+        name = type(exc).__name__
+        if any(k in name for k in ("BadRequest", "Authentication", "PermissionDenied",
+                                   "NotFound", "UnprocessableEntity")):
+            return LLMExhausted(f"LLM 请求不可重试（参数/鉴权类 4xx）: {exc}")
+        if re.search(r"Error code: (400|401|403|404|422)\b", msg):
+            return LLMExhausted(f"LLM 请求不可重试（参数/鉴权类 4xx）: {exc}")
+        return None
 
     @staticmethod
     def _backoff(attempt: int, exc: Exception) -> float:
@@ -278,6 +312,9 @@ class Gateway:
                 return
             except Exception as exc:  # noqa: BLE001 —— 与 complete 相同的重试出口
                 last_exc = exc
+                fail_fast = self._fail_fast(exc)
+                if fail_fast is not None:
+                    raise fail_fast from exc  # ISS-015 #2：流式同样首打即抛
                 if attempt < self.max_retries:
                     self.sleep(self._backoff(attempt, exc))
         raise LLMExhausted(f"LLM 流式重试 {self.max_retries} 次后仍失败: {last_exc}") from last_exc
