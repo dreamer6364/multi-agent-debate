@@ -48,6 +48,8 @@ model:
   temperature: { debater: 0.85, judge: 0.3, chair: 0.3, digest: 0.2 }
   max_retries: 3
   timeout_seconds: 60
+  degradation_limit: 5        # 连续降级熔断阈值（默认 5）
+  token_budget: 2000000       # 单赛场 token 硬上限（累计 prompt+completion；0=不限，ISS-014 A-4）
 context:
   recent_speeches: 6        # 注入最近原文条数 K
   max_input_tokens: 4000    # 单次调用输入预算，超限先砍 recent_speeches
@@ -280,6 +282,8 @@ v2.2 起 phase 1 与 phase 11 属于"仪式骨架"，两种赛制都必须执行
 不可重试错误 fail-fast（ISS-015）：内容过滤拦截（contentFilter 400）与参数/鉴权类 4xx（400/401/403/404/422）不进重试与退避——同 prompt 重试必然同结果，白烧调用与退避时间。内容过滤的入口异常为 `ContentFiltered(LLMExhausted)`；不认识它的既有路径仍按占位降级语义兜底。
 
 内容过滤且该次发言注入了证据卡 → 引擎自动去证据重建 prompt 重试一次（证据段是已知的高危注入源，供应商黑名单是黑盒且会演进）：成功则正常上屏、旁注 `证据降级`（本条无证据支撑，评委与导出可见），不计降级；仍失败或本无证据 → 占位文本 `[系统] 该辩手发言被内容过滤拦截`，旁注 `LLM 降级` + `内容过滤拦截`，计入连续降级。
+
+单场成本护栏（ISS-014 A-4）：Gateway 每次调用前检查本场累计 token，`model.token_budget`（默认 200 万，0/None 不限）超限即抛 `TokenBudgetExceeded`（`DebateAborted` 子类）→ 复用上述熔断终态：`debate.status=failed`、`error` 记明细，**不静默截断**。按调用边界检查，单次调用最多让实际用量越界一个请求的量。
 
 ---
 

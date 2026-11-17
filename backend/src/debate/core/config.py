@@ -40,6 +40,7 @@ class ModelConfig(BaseModel):
     timeout_seconds: int = 60
     min_call_interval: float = 15.0  # 全局限速秒（免费档 RPM 保护；0=不限；MIN_CALL_INTERVAL 环境变量可覆盖）
     degradation_limit: int = 5  # 连续降级熔断阈值（免费档建议 5：带占位跑完优于中止）
+    token_budget: int | None = 2_000_000  # 单赛场 token 硬上限（累计 prompt+completion；None/0=不限，ISS-014 A-4）
 
 
 class ContextConfig(BaseModel):

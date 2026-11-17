@@ -23,6 +23,14 @@ class DebateAborted(Exception):
     """连续 LLM 降级熔断（SPEC §4.9）：比赛标记 failed。"""
 
 
+class TokenBudgetExceeded(DebateAborted):
+    """单赛场 token 预算超限（ISS-014 A-4，SPEC §2.1/§4.9）。
+
+    继承 DebateAborted = 复用既有熔断终态：runner 落 status=failed + error 明细，
+    不静默截断、不新增终态。Gateway 在每次调用前检查并抛出（懒加载本模块避免环）。
+    """
+
+
 @dataclass
 class DebateContext:
     config: AppConfig

@@ -81,7 +81,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             config = AppConfig.model_validate(deep_merge(config.model_dump(), overrides))
         from .engine.llm.gateway import Gateway, extra_body_from_env
 
-        gateway = Gateway(backend=FakeLLM.scripted(script_path), model_debater="fake", model_official="fake")
+        gateway = Gateway(backend=FakeLLM.scripted(script_path), model_debater="fake", model_official="fake",
+                          token_budget=config.model.token_budget)
         compressor = _fake_compressor
     else:
         from .engine.llm.compressor import make_llm_columns_compressor
@@ -92,6 +93,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             model_debater=os.environ.get("MODEL_DEBATER", ""),
             model_official=os.environ.get("MODEL_OFFICIAL", ""),
             max_retries=config.model.max_retries,
+            token_budget=config.model.token_budget,
             min_interval=float(os.environ.get("MIN_CALL_INTERVAL", config.model.min_call_interval)),
             extra_body=extra_body_from_env(),
         )

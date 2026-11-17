@@ -1,6 +1,6 @@
 # ISS-014（评审）面试官视角：AI 应用岗短板与工程硬伤清单
 
-**状态**：部分修复（B-1、B-3、A-1 已修，其余 12 条待修复；逐条整改后更新状态）
+**状态**：部分修复（B-1、B-3、A-1、A-4 已修，其余 11 条待修复；逐条整改后更新状态）
 **评审日期**：2026-11-17
 **评审基线**：main @ `29a8c3d`（Redis 缓存接入后）
 **性质**：与 ISS-001~013 的"测试复现缺陷"不同——本清单是**招聘方视角**的审查结论，按"面试被追问的杀伤力"排序。每条含：事实证据、面试官潜台词、修复建议、预估工时。
@@ -51,7 +51,10 @@
 - **面试官潜台词**："生产上账单失控谁兜？"
 - **修复建议**：单赛场次 token 硬上限（config 可配）→ 超限复用现有降级链优雅终止（记 `error` 终态，不静默截断）+ 回归测试。**与已有降级链叙事天然衔接，性价比极高**。
 - **预估工时**：1~1.5h
-- **状态**：待修复
+- **状态**：✅ 已修复（2026-11-17）
+  - **实现**：`ModelConfig.token_budget`（`config.yaml` 默认 200 万，0/None 不限）；Gateway 是每场新建的实例（`debate_service` / CLI / eval 均为单场工厂），在 `complete` / `stream` / `chat_with_tools` 调用前检查累计 usage（ISS-012 BE-1 原子记账）；超限抛 `TokenBudgetExceeded(DebateAborted)` → **runner 既有熔断分支直接复用**：`status=failed` + `error` 明细，不静默截断、不新增终态；四处工厂（API / CLI 真跑 / CLI fake / eval）全部注入；
+  - **测试**：7 项（首枪通过第二枪前拦下不打后端/不退避、流式同、None/0 不限、终态复用、`_ask` 不吞成占位降级、图层端到端 failed+error、config.yaml 与默认值同步）；全量 pytest **292 passed**、ruff `src tests eval` 0；
+  - **面试官口径**：按调用边界检查（单枪最多越界一个请求的量；工具循环按整轮入口检查，受 max_rounds 约束）；默认 200 万给足 full 赛制余量（lite 真模型冒烟实测 ~149k），收紧只需改 `config.yaml` 一处、零代码改动；FakeLLM 不产 token，既有测试天然不受影响。
 
 ### A-5（P2）LLM 调用零可观测性
 - **事实**：全 `backend/src` 仅 3 处 `logging.getLogger`；无 prompt/response 落盘、无 trace_id 贯穿、无质量看板。
@@ -143,7 +146,7 @@
 | 🔴 P0 | B-2 | `docker compose up --build` 实测 | 0.5h | 现场 demo 打脸 |
 | 🔴 P0 | A-1 | golden set + LLM-as-judge 评分脚本 | 2~3h | ✅ 已修——**"prompt 改了怎么证明没变差"（AI 岗核心）** |
 | 🟡 P1 | B-3 | alembic 进启动链路 | 0.5h | ✅ 已修——"加一列怎么上线"（真 bug） |
-| 🟡 P1 | A-4 | 单赛场次 token 上限 + 超限终止 | 1~1.5h | "账单失控谁兜" |
+| 🟡 P1 | A-4 | 单赛场次 token 上限 + 超限终止 | 1~1.5h | ✅ 已修——**"账单失控谁兜"** |
 | 🟡 P1 | C-1 | 登录失败限流 | 1h | 暴力破解追问 |
 | 🟡 P1 | A-2/A-3/B-5/C-2/C-5 | 答辩口径整理（0 代码） | 0.5h | 概念/取舍类追问 |
 | 🟢 P2 | C-4 | pytest-cov 进 CI | 0.5h | 覆盖率追问 |
@@ -169,6 +172,9 @@ git grep -n "alembic" -- backend/Dockerfile docker-compose.yml     # 期望 0 �
 
 # B-2 构建实测（需 docker daemon）
 docker compose up --build -d
+
+# A-4 单场 token 预算超限（已加 config.model.token_budget 护栏）
+cd backend; .venv/Scripts/python.exe -X utf8 -m pytest tests/unit/test_iss014_token_budget.py -q   # 期望 7 passed
 
 # C-1 无限流
 git grep -nE "attempt|lockout|throttle" -- backend/src/debate/api/auth.py   # 期望 0 命中

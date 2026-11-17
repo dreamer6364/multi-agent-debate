@@ -173,6 +173,7 @@ class Gateway:
     model_debater: str = "gpt-model"
     model_official: str = "gpt-model-lite"
     max_retries: int = 3
+    token_budget: int | None = None  # 单赛场 token 上限（由 factories 从 config.model.token_budget 注入；None/0=不限）
     min_interval: float = 0.0  # 全局限速：相邻调用最小间隔秒（免费档 RPM 受限时配置，如 12）
     sleep: Callable[[float], None] = time.sleep
     _last_call: float = field(default_factory=lambda: 0.0)
@@ -203,10 +204,31 @@ class Gateway:
                 self.sleep(wait)
             self._last_call = time.monotonic()
 
+    def _check_budget(self) -> None:
+        """单赛场 token 硬上限（ISS-014 A-4）：调用前检查，超限立即抛、不消耗任何 token。
+
+        - usage 由本 Gateway 实例逐调用原子累加（ISS-012 BE-1），实例每场新建 →
+          天然是"单场"口径；None/0/负数表示不限；
+        - 按调用边界检查：单次调用最多让实际用量越界一个请求的量；
+        - 抛 TokenBudgetExceeded（DebateAborted 子类）→ runner 复用熔断终态，
+          status=failed + error 明细；懒加载 runtime 避免模块环（runtime 依赖本模块）。
+        """
+        if not self.token_budget or self.token_budget <= 0:
+            return
+        used = self.usage["prompt_tokens"] + self.usage["completion_tokens"]
+        if used >= self.token_budget:
+            from ..runtime import TokenBudgetExceeded  # 懒加载：runtime 顶层依赖 Gateway
+
+            raise TokenBudgetExceeded(
+                f"单赛场 token 预算超限：已用 {used} ≥ 上限 {self.token_budget}"
+                "（model.token_budget），为防账单失控终止比赛"
+            )
+
     def complete(
         self, messages: list[dict[str, str]], *, tier: str, temperature: float, max_tokens: int
     ) -> LLMResult:
         """tier ∈ debater/judge/chair/digest：辩手走主力模型，其余走廉价模型（ARCH D6）。"""
+        self._check_budget()
         self._throttle()
         model = self.model_debater if tier == "debater" else self.model_official
         last_exc: Exception | None = None
@@ -278,6 +300,7 @@ class Gateway:
         调用方据此向下游发"重置"信号（attempt 变化 → 前端清空该 seq 的累积文本）。
         usage 以估算口径统计（prompt 按字符估、completion 按累计字数）。
         """
+        self._check_budget()
         self._throttle()
         model = self.model_debater if tier == "debater" else self.model_official
         last_exc: Exception | None = None
@@ -388,6 +411,7 @@ class Gateway:
         - 否则走 OpenAI 兼容 function calling 原生循环。
         任何异常由调用方捕获降级为普通 complete。
         """
+        self._check_budget()  # 工具循环内多轮调用按整轮入口检查（轮数受 max_rounds 约束）
         if self.backend is not None:
             if hasattr(self.backend, "chat_with_tools"):
                 result = self.backend.chat_with_tools(
