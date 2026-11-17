@@ -8,6 +8,7 @@
 > 2026-11-17 评测冒烟暴露 **ISS-015**（P0 生产：内容过滤误拦证据卡书名 → 连续降级熔断整场失败），已修 3/3；当轮基线：后端 **285 passed**、`ruff check src tests eval` 0。
 > 2026-11-17 ISS-014 A-4（单场 token 硬上限）收口，基线：后端 **292 passed**、`ruff check src tests eval` 0（+7 项预算回归）。
 > 2026-11-17 ISS-014 C-1（登录失败限流）收口，基线：后端 **298 passed**、`ruff check src tests eval` 0（+6 项限流回归）。
+> 2026-11-17 ISS-014 答辩口径整理完成：`issues/INTERVIEW-DEFENSE.md`（A-2/A-3/B-5/C-2/C-5 五条追问链 + 自证锚点 + 边界，0 代码）。
 
 ## 优先级定义
 
