@@ -13,6 +13,7 @@ from ..db.models import User
 from ..services.cache import CacheBackend
 from ..services.debate_service import DebateService
 from .errors import ApiError
+from .login_guard import LoginGuard
 
 COOKIE_NAME = "access_token"
 
@@ -32,6 +33,7 @@ class AppState:
     cookie_secure: bool = False
     sse_heartbeat: float = 15.0
     cache: CacheBackend | None = None  # 只读旁路缓存（services/cache.py；None = 不缓存）
+    login_guard: LoginGuard = field(default_factory=LoginGuard)  # 登录失败限流（ISS-014 C-1；每应用一份）
     extras: dict = field(default_factory=dict)
 
 

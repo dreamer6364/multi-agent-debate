@@ -1,6 +1,6 @@
 # ISS-014（评审）面试官视角：AI 应用岗短板与工程硬伤清单
 
-**状态**：部分修复（B-1、B-3、A-1、A-4 已修，其余 11 条待修复；逐条整改后更新状态）
+**状态**：部分修复（B-1、B-3、A-1、A-4、C-1 已修，其余 10 条待修复；逐条整改后更新状态）
 **评审日期**：2026-11-17
 **评审基线**：main @ `29a8c3d`（Redis 缓存接入后）
 **性质**：与 ISS-001~013 的"测试复现缺陷"不同——本清单是**招聘方视角**的审查结论，按"面试被追问的杀伤力"排序。每条含：事实证据、面试官潜台词、修复建议、预估工时。
@@ -110,7 +110,10 @@
 - **事实**：`api/auth.py` 无失败计数/锁定/退避，仅靠 bcrypt rounds=12 拖慢单次；日配额删除后也无任何频率限制。
 - **修复建议**：同用户名失败计数 + 指数退避（进程内即可，单实例假设一致），或接 IP 级限流中间件。
 - **预估工时**：1h
-- **状态**：待修复
+- **状态**：✅ 已修复（2026-11-17）
+  - **实现**：`api/login_guard.py` 的 `LoginGuard` 挂 `AppState.login_guard`（每应用一份：生产单实例语义，API 测试每应用新建 state 天然隔离）；规范化用户名（去空格/小写）连续失败 5 次锁定 30s、此后每多失败一次翻倍（上限 900s），成功登录清零；锁定中 429 `AUTH_RATE_LIMITED` 直接返回，不查库不跑 bcrypt；条目上限 4096 + 最久未活动淘汰防内存无界；
+  - **测试**：单测 4（归一化/指数退避/封顶与淘汰/按用户隔离）+ API 集成 2（连败锁定→429→到期解锁、不株连他人与成功清零）；全量 pytest **298 passed**、ruff `src tests eval` 0；
+  - **残余风险/面试口径**：进程内计数不跨 worker（多实例需 Redis 共享）；纯用户名锁定可被用于账户锁定 DoS（生产可补 IP 维度/验证码）；bcrypt 时序差导致的账号存在性枚举属既有问题、未纳入本次范围。
 
 ### C-2（P2）JWT 无法注销
 - **事实**：logout 仅 `response.delete_cookie`（`auth.py:65-67`），token 本体 24h 内仍有效，无 jti 黑名单/refresh 轮换。
@@ -147,7 +150,7 @@
 | 🔴 P0 | A-1 | golden set + LLM-as-judge 评分脚本 | 2~3h | ✅ 已修——**"prompt 改了怎么证明没变差"（AI 岗核心）** |
 | 🟡 P1 | B-3 | alembic 进启动链路 | 0.5h | ✅ 已修——"加一列怎么上线"（真 bug） |
 | 🟡 P1 | A-4 | 单赛场次 token 上限 + 超限终止 | 1~1.5h | ✅ 已修——**"账单失控谁兜"** |
-| 🟡 P1 | C-1 | 登录失败限流 | 1h | 暴力破解追问 |
+| 🟡 P1 | C-1 | 登录失败限流 | 1h | ✅ 已修——**暴力破解追问** |
 | 🟡 P1 | A-2/A-3/B-5/C-2/C-5 | 答辩口径整理（0 代码） | 0.5h | 概念/取舍类追问 |
 | 🟢 P2 | C-4 | pytest-cov 进 CI | 0.5h | 覆盖率追问 |
 | 🟢 P2 | A-5 | 结构化日志 + trace_id | 2h | "复读怎么排查"（AI 岗加分） |
@@ -176,6 +179,6 @@ docker compose up --build -d
 # A-4 单场 token 预算超限（已加 config.model.token_budget 护栏）
 cd backend; .venv/Scripts/python.exe -X utf8 -m pytest tests/unit/test_iss014_token_budget.py -q   # 期望 7 passed
 
-# C-1 无限流
-git grep -nE "attempt|lockout|throttle" -- backend/src/debate/api/auth.py   # 期望 0 命中
+# C-1 登录失败限流（已加 AppState.login_guard + AUTH_RATE_LIMITED）
+cd backend; .venv/Scripts/python.exe -X utf8 -m pytest tests/unit/test_login_guard.py tests/api/test_auth.py -q   # 期望 11 passed
 ```

@@ -296,6 +296,7 @@ v2.2 起 phase 1 与 phase 11 属于"仪式骨架"，两种赛制都必须执行
 | `VALIDATION_ERROR` | 422 | 请求体校验失败（detail 附 pydantic 信息） |
 | `AUTH_REQUIRED` | 401 | 未登录 / Cookie 过期 |
 | `AUTH_INVALID` | 401 | 用户名或密码错误 |
+| `AUTH_RATE_LIMITED` | 429 | 登录失败次数过多、账号临时锁定（ISS-014 C-1） |
 | `USERNAME_TAKEN` | 409 | 注册重名 |
 | `NOT_FOUND` | 404 | 资源不存在 |
 | `FORBIDDEN` | 403 | 访问他人资源 / 删除内置辩题 |
@@ -311,9 +312,15 @@ v2.2 起 phase 1 与 phase 11 属于"仪式骨架"，两种赛制都必须执行
 | 端点 | 请求 | 成功响应 | 错误 |
 |---|---|---|---|
 | `POST /api/auth/register` | `{username, password}`（密码 ≥ 8 位） | 201 `{id, username, created_at}` | USERNAME_TAKEN / VALIDATION_ERROR |
-| `POST /api/auth/login` | `{username, password}` | 200 `{id, username}` + `Set-Cookie: access_token=…; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400`（生产加 `Secure`） | AUTH_INVALID |
+| `POST /api/auth/login` | `{username, password}` | 200 `{id, username}` + `Set-Cookie: access_token=…; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400`（生产加 `Secure`） | AUTH_INVALID / AUTH_RATE_LIMITED |
 | `POST /api/auth/logout` | — | 204（清 Cookie） | — |
 | `GET /api/auth/me` | — | 200 `{id, username, role, quota: {daily_used, daily_limit}}` | AUTH_REQUIRED |
+
+登录失败限流（ISS-014 C-1）：按规范化用户名（去空格、转小写）在 `AppState.login_guard`
+进程内计数——连续失败 5 次锁定 30s，此后每多失败一次锁定时间翻倍（上限 900s）；
+锁定中直接 429 `AUTH_RATE_LIMITED`，不查库不跑 bcrypt；成功登录清零。
+单实例语义：多 worker 不共享计数（跨进程需 Redis 计数，属后续演进）；
+随机用户名触发的无限增长由条目上限 + 最久未活动淘汰兜住。
 
 #### 辩题
 

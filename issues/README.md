@@ -4,9 +4,10 @@
 > 测试日期：2026-11-01；v2.9.4 复核：2026-11-05。基线：main @ `2310cbd`（后端 pytest 219 passed + 4 既有失败；前端 vitest 35 passed、tsc 0、vite build 0）。
 > v2.9.4 全项目体检复核结果：后端 `pytest tests/` **233 passed**（含 SSE 7/7，代理劫持已修）、`ruff check src tests` 0；前端 `vitest run` 35 passed、`tsc --noEmit` 0、`vite build` 0。
 > v2.9.5（ISS-012 全 10 项收口）复核结果：后端 **241 passed**（新增 8 项回归）、`ruff` 0；前端 `vitest run` **40 passed**（新增 5 项回归）、`tsc --noEmit` 0、`vite build` 0。ISS-001~013 全部关闭。
-> 2026-11-17 面试官视角评审新增 **ISS-014**（区别于测试复现缺陷：招聘方视角的短板/硬伤清单，15 条按 P0~P2 分级 + 修复路线图），当前状态：部分修复（B-1 CI / B-3 alembic / A-1 评测体系 / A-4 token 上限已修）。
+> 2026-11-17 面试官视角评审新增 **ISS-014**（区别于测试复现缺陷：招聘方视角的短板/硬伤清单，15 条按 P0~P2 分级 + 修复路线图），当前状态：部分修复（B-1 CI / B-3 alembic / A-1 评测体系 / A-4 token 上限 / C-1 登录限流已修）。
 > 2026-11-17 评测冒烟暴露 **ISS-015**（P0 生产：内容过滤误拦证据卡书名 → 连续降级熔断整场失败），已修 3/3；当轮基线：后端 **285 passed**、`ruff check src tests eval` 0。
 > 2026-11-17 ISS-014 A-4（单场 token 硬上限）收口，基线：后端 **292 passed**、`ruff check src tests eval` 0（+7 项预算回归）。
+> 2026-11-17 ISS-014 C-1（登录失败限流）收口，基线：后端 **298 passed**、`ruff check src tests eval` 0（+6 项限流回归）。
 
 ## 优先级定义
 
@@ -34,7 +35,7 @@
 | [ISS-011](ISS-011-stop-finalize-race.md) | P3 | 已修（v2.9.4） | stop 与终态落库竞态：`_write_final` 无条件覆盖 status | `services/debate_service.py:383` |
 | [ISS-012](ISS-012-review-residual-p3.md) | P3 | 已修（v2.9.5） | v2.9.4 全项目体检遗留低危项（10 条语义/边界瑕疵，无功能错误） | 见文档 |
 | [ISS-013](ISS-013-sse-tests-proxy-hijack.md) | P1-测试基建 | 已修（v2.9.4） | SSE 集成测试被系统代理劫持：长挂的 7 个 `test_sse` 失败根因 | `tests/api/conftest.py:210` |
-| [ISS-014](ISS-014-interview-review-gaps.md) | 评审-P0~P2 | 部分修复（B-1/B-3/A-1/A-4 已修） | 面试官视角评审：AI 应用岗短板与工程硬伤清单（15 条，含无 CI、迁移未进部署链、无 Prompt 评测体系） | 见文档 |
+| [ISS-014](ISS-014-interview-review-gaps.md) | 评审-P0~P2 | 部分修复（B-1/B-3/A-1/A-4/C-1 已修） | 面试官视角评审：AI 应用岗短板与工程硬伤清单（15 条，含无 CI、迁移未进部署链、无 Prompt 评测体系） | 见文档 |
 | [ISS-015](ISS-015-content-filter-fallback.md) | P0-生产 | 已修（3/3） | 内容过滤误拦证据卡书名 → 连续降级熔断整场失败（topic-01 确定性复现）；资产改写 + 网关 fail-fast + 引擎去证据回退三层修复 | `knowledge/evidence-base.md:44` |
 
 ## 测试通过项（无问题记录，防止重复排查）

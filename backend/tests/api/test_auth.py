@@ -1,5 +1,7 @@
 """认证集成测试（TEST_PLAN IT-AUT-01~05，SPEC §5.2）。"""
 
+import asyncio
+
 from .conftest import new_client, register_and_login
 
 
@@ -52,4 +54,47 @@ async def test_me_returns_quota(env):
     body = response.json()
     assert body["username"] == "alice"
     assert body["quota"] == {"concurrent_limit": 1, "daily_limit": None}  # v1.3：无每日配额
+    await client.aclose()
+
+
+# ---- ISS-014 C-1：登录失败限流（每 AppState 一份 guard → 测试间天然隔离）----
+
+async def test_login_lockout_after_repeated_failures(env):
+    client = await new_client(env)
+    await client.post("/api/auth/register", json={"username": "brute", "password": "password8"})
+    guard = env.app.state.svc.login_guard
+    guard.base_delay = 0.05  # 测试不等默认 30s
+
+    for _ in range(5):
+        failed = await client.post("/api/auth/login", json={"username": "brute", "password": "wrong-pass"})
+        assert failed.status_code == 401 and failed.json()["code"] == "AUTH_INVALID"
+
+    locked = await client.post("/api/auth/login", json={"username": "brute", "password": "password8"})
+    assert locked.status_code == 429 and locked.json()["code"] == "AUTH_RATE_LIMITED"
+
+    await asyncio.sleep(0.1)  # 锁到期后正确密码放行
+    ok = await client.post("/api/auth/login", json={"username": "brute", "password": "password8"})
+    assert ok.status_code == 200
+    await client.aclose()
+
+
+async def test_lockout_scoped_per_user_and_cleared_on_success(env):
+    client = await new_client(env)
+    for username in ("brute", "alice"):
+        await client.post("/api/auth/register", json={"username": username, "password": "password8"})
+    guard = env.app.state.svc.login_guard
+    guard.base_delay = 0.05
+
+    for _ in range(5):
+        await client.post("/api/auth/login", json={"username": "brute", "password": "wrong-pass"})
+    other = await client.post("/api/auth/login", json={"username": "alice", "password": "password8"})
+    assert other.status_code == 200  # 锁定只针对失败账号，不株连其他用户
+    assert other.headers.get("set-cookie")
+
+    await asyncio.sleep(0.1)
+    assert (await client.post("/api/auth/login",
+                              json={"username": "brute", "password": "password8"})).status_code == 200
+    for _ in range(4):  # 成功后计数清零：再失败 4 次仍只是 401，不再触发锁定
+        failed = await client.post("/api/auth/login", json={"username": "brute", "password": "wrong-pass"})
+        assert failed.status_code == 401
     await client.aclose()

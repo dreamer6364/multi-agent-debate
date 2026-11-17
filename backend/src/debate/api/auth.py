@@ -53,9 +53,13 @@ async def register(body: RegisterIn, session: AsyncSession = Depends(get_session
 async def login(body: LoginIn, response: Response, request: Request,
                 session: AsyncSession = Depends(get_session)):
     state: AppState = get_state(request)
+    guard = state.login_guard
+    guard.check(body.username)  # 锁定中 → 429，不查库不跑 bcrypt（ISS-014 C-1）
     user = (await session.execute(select(User).where(User.username == body.username))).scalar_one_or_none()
     if user is None or not verify_password(body.password, user.password_hash):
+        guard.record_failure(body.username)
         raise ApiError(401, "AUTH_INVALID", "用户名或密码错误")
+    guard.record_success(body.username)
     token = create_access_token(user.id, secret=state.jwt_secret,
                                 expire_minutes=state.jwt_expire_minutes)
     _set_cookie(response, state, token)
