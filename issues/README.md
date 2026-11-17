@@ -4,6 +4,7 @@
 > 测试日期：2026-11-01；v2.9.4 复核：2026-11-05。基线：main @ `2310cbd`（后端 pytest 219 passed + 4 既有失败；前端 vitest 35 passed、tsc 0、vite build 0）。
 > v2.9.4 全项目体检复核结果：后端 `pytest tests/` **233 passed**（含 SSE 7/7，代理劫持已修）、`ruff check src tests` 0；前端 `vitest run` 35 passed、`tsc --noEmit` 0、`vite build` 0。
 > v2.9.5（ISS-012 全 10 项收口）复核结果：后端 **241 passed**（新增 8 项回归）、`ruff` 0；前端 `vitest run` **40 passed**（新增 5 项回归）、`tsc --noEmit` 0、`vite build` 0。ISS-001~013 全部关闭。
+> 2026-11-17 面试官视角评审新增 **ISS-014**（区别于测试复现缺陷：招聘方视角的短板/硬伤清单，15 条按 P0~P2 分级 + 修复路线图），状态待修复。
 
 ## 优先级定义
 
@@ -31,6 +32,7 @@
 | [ISS-011](ISS-011-stop-finalize-race.md) | P3 | 已修（v2.9.4） | stop 与终态落库竞态：`_write_final` 无条件覆盖 status | `services/debate_service.py:383` |
 | [ISS-012](ISS-012-review-residual-p3.md) | P3 | 已修（v2.9.5） | v2.9.4 全项目体检遗留低危项（10 条语义/边界瑕疵，无功能错误） | 见文档 |
 | [ISS-013](ISS-013-sse-tests-proxy-hijack.md) | P1-测试基建 | 已修（v2.9.4） | SSE 集成测试被系统代理劫持：长挂的 7 个 `test_sse` 失败根因 | `tests/api/conftest.py:210` |
+| [ISS-014](ISS-014-interview-review-gaps.md) | 评审-P0~P2 | 待修复 | 面试官视角评审：AI 应用岗短板与工程硬伤清单（15 条，含无 CI、迁移未进部署链、无 Prompt 评测体系） | 见文档 |
 
 ## 测试通过项（无问题记录，防止重复排查）
 
