@@ -67,6 +67,7 @@ class LiveServer:
     """在后台线程跑真实 uvicorn（单 worker），供流式语义测试使用。"""
 
     def __init__(self, app):
+        self.app = app  # ISS-014 B-4：暴露给 new_live_client 订阅 EventBus
         sock = socket.socket()
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -201,7 +202,9 @@ async def env(backend_root, tmp_path):
     app = make_app(backend_root, tmp_path)
     async with app.router.lifespan_context(app):
         async def make_client() -> AsyncClient:
-            return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+            client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+            client._test_app = app  # ISS-014 B-4：供 wait_status 订阅 EventBus 终态事件
+            return client
 
         yield SimpleNamespace(app=app, make_client=make_client)
 
@@ -212,7 +215,9 @@ async def new_client(env) -> AsyncClient:
 
 async def new_live_client(live) -> AsyncClient:
     """连接真实 uvicorn 线程服务器的客户端（流式语义测试用）。"""
-    return AsyncClient(base_url=live.base_url, trust_env=False)
+    client = AsyncClient(base_url=live.base_url, trust_env=False)
+    client._test_app = live.app  # ISS-014 B-4：供 wait_status 订阅 EventBus 终态事件
+    return client
 
 
 async def register_and_login(client: AsyncClient, username: str = "alice", password: str = "password8"):
@@ -224,13 +229,44 @@ async def register_and_login(client: AsyncClient, username: str = "alice", passw
 
 
 async def wait_status(client: AsyncClient, debate_id: int, status: str, timeout: float = 30.0) -> dict:
-    """等待场次到达目标状态。
+    """等待场次到达目标状态（ISS-014 B-4 根治：事件驱动优先，轮询兜底）。
 
-    v2.11：默认 15s→30s——满载机器上单场 FakeLLM 全流程可达 13~14s，15s 阈值造成
-    边界超时的假红（ISS-005 测试基建稳定性；基线代码同样复现，与产品逻辑无关）。
+    历史缺陷：纯墙钟轮询（15s→30s）在满载下偶发越线，失败集合随机。
+    修复：若 client 持有 app（new_client/new_live_client 已挂），订阅该场 EventBus，
+    终态 status 事件一到立即返回——事件在 bus.close 前发出，早于 DB commit，
+    既不依赖固定墙钟、也不受 DB 写库排队影响；订阅不可用时回落轮询（兼容裸 client）。
     """
     import asyncio
 
+    # 先即时回读一次：FakeLLM 很快，终态可能已落库（事件早已发出）
+    first = (await client.get(f"/api/debates/{debate_id}")).json()
+    if first.get("status") == status:
+        return first
+
+    app = getattr(client, "_test_app", None)
+    bus = None
+    if app is not None:
+        svc = app.state.svc
+        bus = (getattr(svc.service, "_buses", {}) or {}).get(debate_id)
+    if bus is not None:
+        queue = bus.subscribe()
+        try:
+            deadline = asyncio.get_running_loop().time() + timeout
+            while True:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=remaining)
+                except asyncio.TimeoutError:
+                    break
+                data = event.get("data", {})
+                if event.get("event") == "status" and data.get("status") == status:
+                    return await _fetch_debate(client, debate_id)  # 回读一次拿完整落库字段
+        finally:
+            bus.unsubscribe(queue)
+
+    # 兜底轮询（无 app/bus 的裸 client；或事件窗口已错过）
     loop = asyncio.get_event_loop()
     deadline = loop.time() + timeout
     last = {}
@@ -241,6 +277,11 @@ async def wait_status(client: AsyncClient, debate_id: int, status: str, timeout:
             return last
         await asyncio.sleep(0.05)
     raise TimeoutError(f"等待 {status} 超时，最后状态: {last}")
+
+
+async def _fetch_debate(client: AsyncClient, debate_id: int) -> dict:
+    response = await client.get(f"/api/debates/{debate_id}")
+    return response.json()
 
 
 def _now_cn():
