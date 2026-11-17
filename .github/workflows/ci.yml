@@ -45,17 +45,31 @@ jobs:
         working-directory: backend
         run: uv sync --frozen
 
+      - name: Install Elenchus（third_party 本地包，不在 lock 里）
+        working-directory: backend
+        run: uv pip install ./third_party/elenchus
+
       - name: Lint（ruff 规则集钉在 pyproject，ISS-007）
         working-directory: backend
         run: uv run ruff check src tests eval
 
-      - name: Test（pytest -n 4；失败自动复跑一次甄别 flake）
+      - name: Test with coverage（pytest -n 4；失败自动复跑一次甄别 flake）
         working-directory: backend
         run: |
-          if ! uv run pytest -q -n 4; then
+          # ISS-014 C-4：先出覆盖率报告看基线数字，暂不设 --cov-fail-under（避免拍脑袋门槛）。
+          # 注意用 --cov=src/debate 而非 --cov=debate：后者在本 editable 布局下抓不到数据。
+          if ! uv run pytest -q -n 4 --cov=src/debate --cov-report=term-missing --cov-report=xml; then
             echo "::warning::全量首次失败，复跑失败用例（ISS-014 B-4 已知边界 flake）"
-            uv run pytest -q --lf -n 4
+            uv run pytest -q --lf -n 4  # 复跑只甄别 flake，覆盖率报告保留首次全量的数据
           fi
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+          if-no-files-found: warn
 
   frontend:
     name: frontend (tsc + vitest + build)

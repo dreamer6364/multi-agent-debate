@@ -1,6 +1,6 @@
 # ISS-014（评审）面试官视角：AI 应用岗短板与工程硬伤清单
 
-**状态**：部分修复（B-1、B-3、A-1、A-4、C-1 已修；A-2/A-3/B-5/C-2/C-5 口径已整理；其余 5 条代码项待修复；逐条整改后更新状态）
+**状态**：部分修复（B-1、B-3、A-1、A-4、C-1、C-4 已修；A-2/A-3/B-5/C-2/C-5 口径已整理；其余 4 条代码项待修复；逐条整改后更新状态）
 **评审日期**：2026-11-17
 **评审基线**：main @ `29a8c3d`（Redis 缓存接入后）
 **性质**：与 ISS-001~013 的"测试复现缺陷"不同——本清单是**招聘方视角**的审查结论，按"面试被追问的杀伤力"排序。每条含：事实证据、面试官潜台词、修复建议、预估工时。
@@ -131,7 +131,11 @@
 - **事实**：dev 依赖无 pytest-cov；"251 个测试"不等于覆盖率。
 - **修复建议**：`uv add --group dev pytest-cov`，CI 输出 coverage 报告，先看基线数字再定门槛（避免拍脑袋门槛卡死自己）。
 - **预估工时**：0.5h
-- **状态**：待修复
+- **状态**：✅ 已修复（2026-11-17）
+  - **依赖锁定**：`pytest-cov 7.1.0` + `coverage 7.17.3` 进 dev 组，`uv.lock` 同步（+142 行纯新增，无镜像 URL 污染）；
+  - **CI 输出**：`Test with coverage` 步骤 `pytest -n 4 --cov=src/debate --cov-report=term-missing --cov-report=xml`，`coverage.xml` 经 `upload-artifact@v4` 上传（PR 可查）；**暂不设 `--cov-fail-under`**——先积累基线趋势再定门槛（避免拍脑袋卡死）；注意 `--cov=debate` 在此 editable 布局下抓不到数据，必须用 `--cov=src/debate`；
+  - **基线数字（2026-11-17，真实全量）**：**TOTAL 85%（4474 语句 / 680 未覆盖）、298 passed / ruff 0**，报告 `backend/coverage.xml`（已入 .gitignore）；
+  - **顺带修的 CI 隐患**：`uv sync --frozen` 会移除不在 lock 里的本地包 elenchus → CI 新增 `uv pip install ./third_party/elenchus` 步骤（实测 `uv run` 不二次移除）；这是 B-1 CI 从未真跑过的潜在缺陷，借 C-4 一并补上。
 
 ### C-5（P2）无并发/压测
 - **事实**：无 locust/k6；所有"并发正确性"结论来自 2 请求级竞态测试（ISS-001）。
@@ -152,7 +156,7 @@
 | 🟡 P1 | A-4 | 单赛场次 token 上限 + 超限终止 | 1~1.5h | ✅ 已修——**"账单失控谁兜"** |
 | 🟡 P1 | C-1 | 登录失败限流 | 1h | ✅ 已修——**暴力破解追问** |
 | 🟡 P1 | A-2/A-3/B-5/C-2/C-5 | 答辩口径整理（0 代码） | 0.5h | ✅ 已整理——`issues/INTERVIEW-DEFENSE.md`（5 条追问链 + 自证锚点 + 边界） |
-| 🟢 P2 | C-4 | pytest-cov 进 CI | 0.5h | 覆盖率追问 |
+| 🟢 P2 | C-4 | pytest-cov 进 CI | 0.5h | ✅ 已修——基线 **85% / 4474 语句**，XML 上传 PR |
 | 🟢 P2 | A-5 | 结构化日志 + trace_id | 2h | "复读怎么排查"（AI 岗加分） |
 | 🟢 P2 | C-3 | E2E 主链路或措辞降级 | 0~2h | E2E 追问 |
 | 🟢 P2 | B-4 | 测试时钟注入根治 flake | 3h+ | "CI 靠运气" |
@@ -181,4 +185,7 @@ cd backend; .venv/Scripts/python.exe -X utf8 -m pytest tests/unit/test_iss014_to
 
 # C-1 登录失败限流（已加 AppState.login_guard + AUTH_RATE_LIMITED）
 cd backend; .venv/Scripts/python.exe -X utf8 -m pytest tests/unit/test_login_guard.py tests/api/test_auth.py -q   # 期望 11 passed
+
+# C-4 覆盖率（已进 CI，基线 85%）
+cd backend; .venv/Scripts/python.exe -X utf8 -m pytest -q -n 4 --cov=src/debate --cov-report=term-missing   # TOTAL ≈ 85%
 ```
