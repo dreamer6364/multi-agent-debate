@@ -51,6 +51,7 @@ class DebateContext:
     speeches: list[Speech] = field(default_factory=list)  # 全场镜像（取消/中断时仍可用）
     qc: Any | None = None  # v2.8.1 流式质检（StreamingQC）：每条发言落定即分析；CLI/测试可不挂
     golden: Any | None = None  # v2.9 流式金句摘录（GoldenQuoteStream）：每条发言落定即摘录；CLI/测试可不挂
+    trace_id: str = ""  # ISS-014 A-5：本场追踪 id（SSE 事件与 LLM 日志关联用）
 
     def cancelled(self) -> bool:
         return bool(self.cancel_check and self.cancel_check())
@@ -60,8 +61,13 @@ class DebateContext:
             raise DebateCancelled()
 
     def emit(self, event: str, **data) -> None:
-        """平台事件出口（ARCH §5.3）：phase_start/timer/interrupt/judging/verdict 等。"""
+        """平台事件出口（ARCH §5.3）：phase_start/timer/interrupt/judging/verdict 等。
+
+        ISS-014 A-5：所有事件自动携带本场 trace_id——LLM 调用日志与 SSE 事件可
+        按同一 id 关联回放；data 里显式传入的 trace_id 优先（调用方自定义场景）。
+        """
         if self.on_event:
+            data.setdefault("trace_id", self.trace_id)
             self.on_event({"event": event, "data": data})
 
     def track_speech(self, speech: Speech) -> None:

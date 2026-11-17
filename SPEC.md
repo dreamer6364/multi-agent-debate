@@ -285,6 +285,12 @@ v2.2 起 phase 1 与 phase 11 属于"仪式骨架"，两种赛制都必须执行
 
 单场成本护栏（ISS-014 A-4）：Gateway 每次调用前检查本场累计 token，`model.token_budget`（默认 200 万，0/None 不限）超限即抛 `TokenBudgetExceeded`（`DebateAborted` 子类）→ 复用上述熔断终态：`debate.status=failed`、`error` 记明细，**不静默截断**。按调用边界检查，单次调用最多让实际用量越界一个请求的量。
 
+### 4.10 可观测性：trace_id 与结构化调用日志（ISS-014 A-5）
+
+- **trace_id**：一场比赛一个 12 位十六进制 id——Web 由 `debate_service` 开赛前生成并传入 `run_debate`，CLI/eval 由 runner 兜底生成；经 `DebateResult.trace_id`、`DebateContext.trace_id` → `Gateway.trace_id` → 所有 LLM 调用日志与**全部 SSE 事件 data**（`runtime.emit` 与 service 层 speech/delta/status 均注入）贯通。同一 id 可从 SSE 回放定位到该场每一次调用，无需翻库猜。
+- **结构化日志**：`Gateway` 每次请求（含每次重试 attempt）向 `debate.llm` logger 输出**一行 JSON**：`event=llm_call` / `trace_id` / `tier` / `model` / `attempt` / `ok` / `latency_ms` / `prompt_tokens` / `completion_tokens` / `error`（仅异常类型名）。**不记 prompt / response 全文**（隐私 + 容量：辩题与证据卡可能含用户信息，单次调用可达 10k+ tokens）；日志为旁路，写入失败静默忽略、绝不影响比赛。
+- **排查路径示例**：辩手突然集体复读 → 按 trace_id 过滤本场调用日志 → 看各辩手每次发言的 latency/tokens 与失败 attempt；token 异常低 / 大量 ContentFiltered / 长退避可直接定位，不必从 SSE 实录倒推。质量趋势另见 eval 报告（§A-1）。
+
 ---
 
 ## 5. API 规格
@@ -365,7 +371,9 @@ v2.2 起 phase 1 与 phase 11 属于"仪式骨架"，两种赛制都必须执行
 
 ```
 id: <speech 事件 = 该条 seq；其余事件 = 全局自增>
-event: phase_start   data: {"phase": 3, "name": "质询一辩", "actors": ["con-2","pro-1"], "budget_words": 330}
+# v2.12（ISS-014 A-5）：所有事件 data 均含 trace_id（12 位十六进制，本场唯一），
+# 与 debate.llm 结构化调用日志同 id——按一场 id 过滤即可从 SSE 回放定位到每次 LLM 调用。
+event: phase_start   data: {"phase": 3, "name": "质询一辩", "actors": ["con-2","pro-1"], "budget_words": 330, "trace_id": "a1b2c3d4e5f6"}
 event: speech_delta data: {"seq":12,"delta":"对方辩友","attempt":0}   # 逐字流式（v2.1）：仅直播期推送，不落库、断线重连不重放；attempt 变化表示流式重试，前端须重置该 seq 的累积文本。主席等工作人员的确定性模板发言（phase 1/11，AGENT_CONSTRAINTS §2）不经流式，不产生 speech_delta
 event: speech        data: {"seq":12,"phase":3,"phase_name":"质询一辩","speaker":"con-2","camp":"con","text":"…","interrupted":false,"side_notes":[],"word_count":86}   # phase/phase_name 为 v2.3 增补：环节戳随条落库/直播，前端筛选与重连归因不依赖"当前 phase"
 event: timer         data: {"type":"warning|time_up","speaker":"pro-1"}

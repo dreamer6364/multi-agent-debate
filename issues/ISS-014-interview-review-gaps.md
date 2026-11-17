@@ -1,6 +1,6 @@
 # ISS-014（评审）面试官视角：AI 应用岗短板与工程硬伤清单
 
-**状态**：部分修复（B-1、B-3、A-1、A-4、C-1、C-4 已修；A-2/A-3/B-5/C-2/C-3/C-5 口径/措辞已整理；其余 3 条代码项待修复；逐条整改后更新状态）
+**状态**：部分修复（B-1、B-3、A-1、A-4、C-1、C-4、A-5 已修；A-2/A-3/B-5/C-2/C-3/C-5 口径/措辞已整理；其余 2 条代码项待修复；逐条整改后更新状态）
 **评审日期**：2026-11-17
 **评审基线**：main @ `29a8c3d`（Redis 缓存接入后）
 **性质**：与 ISS-001~013 的"测试复现缺陷"不同——本清单是**招聘方视角**的审查结论，按"面试被追问的杀伤力"排序。每条含：事实证据、面试官潜台词、修复建议、预估工时。
@@ -61,7 +61,11 @@
 - **面试官潜台词**："辩手突然集体复读，你的排查路径？"
 - **修复建议**：结构化日志（每次 LLM 调用记录 tier/model/tokens/latency + trace_id），trace_id 贯穿 SSE 事件便于回放定位。
 - **预估工时**：2h
-- **状态**：待修复
+- **状态**：✅ 已修复（2026-11-17）
+  - **trace_id**：12 位短 id，Web 由 `debate_service` 开赛前生成、CLI/eval 由 runner 兜底；经 `DebateResult.trace_id` → `DebateContext.trace_id` → `Gateway.trace_id` 贯通，**所有 SSE 事件 data**（含 speech/delta/status/引擎事件）与 LLM 调用日志同 id，一场一 id；
+  - **结构化日志**：`engine/llm/observability.py` 的 `log_llm_call` 输出一行 JSON 到 `debate.llm` logger（event/trace_id/tier/model/attempt/ok/latency_ms/prompt_tokens/completion_tokens/error）——Gateway 的 complete/stream/chat_with_tools 每次请求（含每次重试）均埋点；**不记 prompt/response 全文**（隐私+容量），日志写入旁路失败静默；
+  - **排查路径**（面试官追问直接答）：按 trace_id 过滤本场调用日志 → 看各辩手每次发言的 latency/tokens 与失败 attempt → token 异常低 / 大量 ContentFiltered / 长退避直接定位，不必翻 SSE 倒推；质量趋势配合 A-1 eval 报告；
+  - **测试**：6 项（trace_id 唯一性、runner 注入网关与结果、ctx.emit 注入 SSE、`log_llm_call` JSON 字段与不含 payload、complete 成功/失败埋点、stream 埋点）+ SSE schema 两处更新为纳入 trace_id；SPEC §4.10 + §6.2 同步。
 
 ---
 
@@ -160,7 +164,7 @@
 | 🟡 P1 | C-1 | 登录失败限流 | 1h | ✅ 已修——**暴力破解追问** |
 | 🟡 P1 | A-2/A-3/B-5/C-2/C-5 | 答辩口径整理（0 代码） | 0.5h | ✅ 已整理——`issues/INTERVIEW-DEFENSE.md`（5 条追问链 + 自证锚点 + 边界） |
 | 🟢 P2 | C-4 | pytest-cov 进 CI | 0.5h | ✅ 已修——基线 **85% / 4474 语句**，XML 上传 PR |
-| 🟢 P2 | A-5 | 结构化日志 + trace_id | 2h | "复读怎么排查"（AI 岗加分） |
+| 🟢 P2 | A-5 | 结构化日志 + trace_id | 2h | ✅ 已修——**"复读怎么排查"（AI 岗加分）** |
 | 🟢 P2 | C-3 | E2E 主链路或措辞降级 | 0~2h | ✅ 措辞已降级——不写"E2E 覆盖体系" |
 | 🟢 P2 | B-4 | 测试时钟注入根治 flake | 3h+ | "CI 靠运气" |
 

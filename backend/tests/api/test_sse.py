@@ -120,8 +120,9 @@ async def test_sse02_speech_event_schema(backend_root, tmp_path):
             # ISS-003：v2.3 增补 phase/phase_name 环节戳（前端 ArenaPage 据此筛主席开场）
             assert set(e["data"].keys()) == {
                 "seq", "speaker", "camp", "text", "interrupted", "side_notes", "word_count",
-                "phase", "phase_name",
+                "phase", "phase_name", "trace_id",  # ISS-014 A-5：trace_id 贯穿 SSE
             }
+            assert len(e["data"]["trace_id"]) == 12  # 与 LLM 调用日志同 id
             assert e["id"] == e["data"]["seq"]  # id = seq（SPEC §6.2）
     finally:
         backend.release.set()
@@ -250,7 +251,8 @@ async def test_sse07_speech_delta_accumulates_to_final(backend_root, tmp_path):
         grouped: dict[tuple[int, int], str] = {}
         for e in deltas:
             d = e["data"]
-            assert set(d.keys()) == {"seq", "delta", "attempt", "speaker", "camp"}
+            assert set(d.keys()) == {"seq", "delta", "attempt", "speaker", "camp", "trace_id"}
+            assert len(d["trace_id"]) == 12
             grouped[(d["seq"], d["attempt"])] = grouped.get((d["seq"], d["attempt"]), "") + d["delta"]
         assert all(attempt == 0 for _, attempt in grouped)
 

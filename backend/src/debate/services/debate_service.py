@@ -23,6 +23,7 @@ from ..core.config import AppConfig
 from ..db.models import DebateRow, ScorecardRow, SpeechRow
 from ..engine.agents.loader import AgentSpec
 from ..engine.llm.gateway import Gateway
+from ..engine.llm.observability import new_trace_id
 from ..engine.runner import DebateResult, run_debate
 from ..engine.schema import Camp, DebateFormat, Speech, Topic
 from .event_bus import EventBus
@@ -220,6 +221,7 @@ class DebateService:
         queue: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
         bus = self._buses.get(debate_id)
+        trace_id = new_trace_id()  # ISS-014 A-5：本场追踪 id（LLM 日志 / SSE / 结果同 id）
 
         def on_speech(speech: Speech) -> None:
             loop.call_soon_threadsafe(queue.put_nowait, speech)
@@ -227,6 +229,7 @@ class DebateService:
                 loop.call_soon_threadsafe(bus.publish, {
                     "event": "speech", "id": speech.seq,
                     "data": {
+                        "trace_id": trace_id,  # ISS-014 A-5：与 LLM 调用日志同 id
                         "seq": speech.seq, "speaker": speech.speaker, "camp": speech.camp.value,
                         "text": speech.text, "interrupted": speech.interrupted,
                         "side_notes": list(speech.side_notes),
@@ -239,7 +242,9 @@ class DebateService:
 
         def on_event(event: dict) -> None:
             if bus is not None:
-                loop.call_soon_threadsafe(bus.publish, dict(event))
+                event = dict(event)
+                event.setdefault("data", {})["trace_id"] = trace_id  # ISS-014 A-5
+                loop.call_soon_threadsafe(bus.publish, event)
             # P1-1 打断实时修正：该发言行多半已按"完整文本"插入（打断发生在下一条提问时），
             # 就地改成截断后文本——断线重连从 DB 重放时才是"已被打断"的正确终稿。
             # 行尚未插入时跳过：队列里的 Speech 是同一对象引用，drain 落库时已是截断文本。
@@ -254,20 +259,21 @@ class DebateService:
             if bus is not None and self.config.stream.enable_delta:
                 loop.call_soon_threadsafe(bus.publish, {
                     "event": "speech_delta",
-                    "data": {"seq": seq, "delta": delta, "attempt": attempt,
+                    "data": {"trace_id": trace_id, "seq": seq, "delta": delta, "attempt": attempt,
                              "speaker": speaker, "camp": camp},
                 })
 
         await self._mark(debate_id, status="running", started_at=self.now_fn())
         if bus is not None:
-            bus.publish({"event": "status", "data": {"status": "running", "error": None}})
+            bus.publish({"event": "status", "data": {"status": "running", "error": None,
+                                                      "trace_id": trace_id}})
 
         def engine_callable() -> DebateResult:
             return run_debate(
                 topic=topic, fmt=fmt, config=self.config, gateway=gateway, compressor=compressor,
                 agents=self.agents, on_speech=on_speech, on_event=on_event,
                 on_delta=on_delta if self.config.stream.enable_delta else None,
-                cancel_check=lambda: cancel_flag["cancelled"],
+                cancel_check=lambda: cancel_flag["cancelled"], trace_id=trace_id,
             )
 
         drain_task = asyncio.create_task(self._drain(queue, debate_id))
@@ -300,7 +306,8 @@ class DebateService:
             if not drained:
                 await self._finish_drain(queue, drain_task, debate_id)
         if bus is not None:
-            bus.publish({"event": "status", "data": {"status": status, "error": error}})
+            bus.publish({"event": "status", "data": {"status": status, "error": error,
+                                                      "trace_id": trace_id}})
             bus.close()
 
     async def _run_engine(self, engine_callable: Callable[[], DebateResult], *, debate_id: int,

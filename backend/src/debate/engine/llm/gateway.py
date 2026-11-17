@@ -14,6 +14,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from .observability import log_llm_call
+
 
 @dataclass
 class LLMResult:
@@ -179,6 +181,7 @@ class Gateway:
     _last_call: float = field(default_factory=lambda: 0.0)
     _throttle_lock: threading.Lock = field(default_factory=threading.Lock)  # v1.9.1：评委并发后多线程调用
     extra_body: dict[str, Any] | None = None  # OpenAI 兼容透传（如 GLM thinking: disabled）
+    trace_id: str = ""  # ISS-014 A-5：本场追踪 id（runner 注入）——结构化日志与 SSE 同 id
     usage: dict[str, int] = field(default_factory=lambda: {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0})
     _usage_lock: threading.Lock = field(default_factory=threading.Lock)  # ISS-012 BE-1：评委多线程并发累加
     _client: Any = None
@@ -233,6 +236,7 @@ class Gateway:
         model = self.model_debater if tier == "debater" else self.model_official
         last_exc: Exception | None = None
         for attempt in range(self.max_retries + 1):
+            t0 = time.monotonic()
             try:
                 if self.backend is not None:
                     raw = self.backend.complete(messages, model=model, temperature=temperature, max_tokens=max_tokens)
@@ -245,9 +249,14 @@ class Gateway:
                                        completion_tokens=result.completion_tokens)
                 self._add_usage(prompt_tokens=result.prompt_tokens,
                                 completion_tokens=result.completion_tokens)
+                log_llm_call(trace_id=self.trace_id, tier=tier, model=model, attempt=attempt, ok=True,
+                             latency_ms=(time.monotonic() - t0) * 1000,
+                             prompt_tokens=result.prompt_tokens, completion_tokens=result.completion_tokens)
                 return result
             except Exception as exc:  # noqa: BLE001 —— 统一重试，最终以 LLMExhausted 出口
                 last_exc = exc
+                log_llm_call(trace_id=self.trace_id, tier=tier, model=model, attempt=attempt, ok=False,
+                             latency_ms=(time.monotonic() - t0) * 1000, error=type(exc).__name__)
                 fail_fast = self._fail_fast(exc)
                 if fail_fast is not None:
                     raise fail_fast from exc  # ISS-015 #2：不可重试错误不进重试/退避
@@ -306,6 +315,7 @@ class Gateway:
         last_exc: Exception | None = None
         flt = _StreamToolFilter()  # 压制混进正文的文本型工具调用（防 speech_delta 泄漏）
         for attempt in range(self.max_retries + 1):
+            t0 = time.monotonic()
             try:
                 if on_attempt is not None:
                     on_attempt(attempt)
@@ -332,9 +342,15 @@ class Gateway:
                     prompt_tokens=sum(len(m.get("content", "")) for m in messages),
                     completion_tokens=sum(len(c) for c in collected),
                 )
+                log_llm_call(trace_id=self.trace_id, tier=tier, model=model, attempt=attempt, ok=True,
+                             latency_ms=(time.monotonic() - t0) * 1000,
+                             prompt_tokens=sum(len(m.get("content", "")) for m in messages),
+                             completion_tokens=sum(len(c) for c in collected))
                 return
             except Exception as exc:  # noqa: BLE001 —— 与 complete 相同的重试出口
                 last_exc = exc
+                log_llm_call(trace_id=self.trace_id, tier=tier, model=model, attempt=attempt, ok=False,
+                             latency_ms=(time.monotonic() - t0) * 1000, error=type(exc).__name__)
                 fail_fast = self._fail_fast(exc)
                 if fail_fast is not None:
                     raise fail_fast from exc  # ISS-015 #2：流式同样首打即抛
@@ -412,6 +428,8 @@ class Gateway:
         任何异常由调用方捕获降级为普通 complete。
         """
         self._check_budget()  # 工具循环内多轮调用按整轮入口检查（轮数受 max_rounds 约束）
+        t0 = time.monotonic()
+        model = self.model_debater if tier == "debater" else self.model_official
         if self.backend is not None:
             if hasattr(self.backend, "chat_with_tools"):
                 result = self.backend.chat_with_tools(
@@ -424,8 +442,12 @@ class Gateway:
                 if cleaned != result.text:  # 异构后端同样可能把调用写进正文
                     result = LLMResult(text=cleaned, prompt_tokens=result.prompt_tokens,
                                        completion_tokens=result.completion_tokens)
+                log_llm_call(trace_id=self.trace_id, tier=tier, model=model, attempt=0, ok=True,
+                             latency_ms=(time.monotonic() - t0) * 1000,
+                             prompt_tokens=result.prompt_tokens, completion_tokens=result.completion_tokens)
                 return result
-            return self.complete(messages, tier=tier, temperature=temperature, max_tokens=max_tokens)
+            result = self.complete(messages, tier=tier, temperature=temperature, max_tokens=max_tokens)
+            return result  # complete 内部已逐 attempt 记录日志，避免重复
 
         self._throttle()
         model = self.model_debater if tier == "debater" else self.model_official
@@ -440,6 +462,11 @@ class Gateway:
         convo = [dict(m) for m in messages]
         prompt_tokens = 0
         completion_tokens = 0
+
+        def _log_tools(ok: bool, error: str | None = None) -> None:
+            log_llm_call(trace_id=self.trace_id, tier=tier, model=model, attempt=0, ok=ok,
+                         latency_ms=(time.monotonic() - t0) * 1000,
+                         prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, error=error)
         kwargs: dict[str, Any] = {"tools": tools, "tool_choice": "auto"}
         if self.extra_body:
             kwargs["extra_body"] = self.extra_body
@@ -458,6 +485,7 @@ class Gateway:
                 if parsed is None:
                     self._add_usage(prompt_tokens=prompt_tokens,
                                     completion_tokens=completion_tokens)
+                    _log_tools(True)
                     return LLMResult(text=text, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
                 cleaned = strip_tool_artifacts(text)
                 if parsed and round_index < max_rounds:
@@ -484,6 +512,7 @@ class Gateway:
                 if cleaned:  # 轮数耗尽/解析失败：至少把调用痕迹从正文剥掉
                     self._add_usage(prompt_tokens=prompt_tokens,
                                     completion_tokens=completion_tokens)
+                    _log_tools(True)
                     return LLMResult(text=cleaned, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
                 # 整条都是无法解析的调用痕迹 → 跳出走无工具收束
                 kwargs.pop("tools", None)
@@ -526,4 +555,6 @@ class Gateway:
             prompt_tokens=prompt_tokens + (getattr(usage, "prompt_tokens", 0) or 0),
             completion_tokens=completion_tokens + (getattr(usage, "completion_tokens", 0) or 0),
         )
+        completion_tokens += getattr(usage, "completion_tokens", 0) or 0
+        _log_tools(True)
         return LLMResult(text=text, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)

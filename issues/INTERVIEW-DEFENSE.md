@@ -124,6 +124,24 @@
 
 ---
 
+## §7 A-5："辩手突然集体复读，你怎么排查？"（AI 岗加分）
+
+**一句话结论**：一场一个 12 位 `trace_id` 从 SSE 事件贯穿到每次 LLM 调用的结构化日志；按 id 过滤即可看到这位辩手每次发言的 tokens / 延迟 / 失败重试，直接区分"模型复读""超时降级""内容过滤误拦"，不靠翻实录猜。
+
+**展开**：
+- 结构化日志：Gateway 每次请求（含每次重试 attempt）输出一行 JSON——`trace_id / tier / model / attempt / ok / latency_ms / prompt_tokens / completion_tokens / error`；
+- **不落 prompt/response 全文**（隐私 + 容量），只落元数据；日志写入是旁路，失败静默不影响比赛；
+- trace_id 在 Web 由 service 开赛前生成、CLI/eval 由 runner 兜底，注入 `DebateResult` / ctx / gateway，所有 SSE 事件 data 自动携带；
+- 质量趋势配合 A-1 的 LLM-as-judge 报告（立场坚守/引用诚信/论证质量按次落盘）——**日志看"发生了什么"，评测看"好不好"**。
+
+**自证锚点**：`engine/llm/observability.py`、`engine/llm/gateway.py`（埋点）、`engine/runner.py`（trace_id 注入）、`services/debate_service.py`（SSE 贯穿）、`SPEC.md §4.10/§6.2`、`tests/unit/test_observability.py`。
+
+**追问链**：
+- "为什么不全量落 prompt？" → 辩题与证据卡可能含用户信息，单次调用可达 10k+ tokens，全量落盘既是隐私风险也是存储成本；元数据足够定位，需要复现时可按 trace_id 用同一 seed 重放。
+- "日志和评测报告怎么配合？" → 日志是 per-call 事实（延迟/失败/用量），评测是 per-debate 质量分；"复读"先用日志确认是模型输出异常还是降级占位，再用 judge 的立场坚守/论证质量分量化退化程度。
+
+---
+
 ## 速查表（面试官一句话 → 先答哪句）
 
 | 追问 | 第一句结论 |
@@ -134,3 +152,4 @@
 | "JWT 能注销吗？" | "stateless 取舍，TTL 内有效；生产补 jti 黑名单（复用 Redis）+ 短 TTL + refresh。" |
 | "做过压测吗？" | "没有专业压测，只有请求级竞态回归；规模边界单机演示级，方案我给得出。" |
 | "E2E 覆盖怎么样？" | "1 条注册到归档导出的主链路冒烟 + 9 项 Vitest；不宣称覆盖体系，测试厚度在后端。" |
+| "辩手复读怎么排查？" | "trace_id 贯通 SSE 与每次调用日志（tokens/延迟/失败），按 id 过滤即定位；评测报告看质量退化。" |

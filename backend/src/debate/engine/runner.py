@@ -10,6 +10,7 @@ from .agents.loader import AgentSpec, load_agents
 from .graph.builder import build_graph
 from .graph.state import initial_state
 from .llm.gateway import Gateway
+from .llm.observability import new_trace_id
 from .rag.retriever import EvidenceRetriever
 from .rag.websearch import resolve_provider, search_as_cards
 from .runtime import DebateAborted, DebateCancelled, DebateContext
@@ -26,6 +27,7 @@ class DebateResult:
     machine_marks: list[dict] = field(default_factory=list)  # v1.7 Elenchus 谬误标注
     golden_quotes: list[dict] = field(default_factory=list)  # v2.9 金句摘录
     usage: dict[str, int] = field(default_factory=dict)
+    trace_id: str = ""  # ISS-014 A-5：本场追踪 id（与 LLM 调用日志、SSE 事件同 id）
 
 
 def run_debate(
@@ -41,9 +43,12 @@ def run_debate(
     on_event: Callable[[dict], None] | None = None,
     on_delta: Callable[[int, str, int, str, str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    trace_id: str | None = None,  # ISS-014 A-5：单场追踪 id；None 则生成
 ) -> DebateResult:
     if agents is None:
         agents = load_agents(Path(assets_root) if assets_root else Path.cwd())
+    trace_id = trace_id or new_trace_id()
+    gateway.trace_id = trace_id  # 注入网关：结构化日志与 SSE 同 id
 
     # RAG 预检索（v1.4）：双方各自按辩题+己方命题取 top_k 证据卡，全场环节复用
     # v1.4.1：联网搜索结果并入（provider 见 config.web_search；失败静默回落本地）
@@ -73,6 +78,7 @@ def run_debate(
         config=config, topic=topic, agents=agents, gateway=gateway,
         compressor=compressor, format=fmt, evidence=evidence, on_speech=on_speech, on_event=on_event, on_delta=on_delta,
         cancel_check=cancel_check, retriever=retriever, web_provider=web_provider,
+        trace_id=trace_id,
     )
     # v2.8.1 流式质检：开赛即挂 QC，每条辩手发言落定（track_speech）就分析，
     # 标注实时推 fallacy SSE；评审阶段只收割现成结果。任何失败静默降级。
@@ -133,18 +139,19 @@ def run_debate(
             machine_marks=final.get("machine_marks", []),
             golden_quotes=drain_golden(8.0),
             usage=dict(gateway.usage),
+            trace_id=trace_id,
         )
     except DebateCancelled:
         return DebateResult(
             status="stopped", transcript=list(ctx.speeches),
             golden_quotes=drain_golden(1.0),
-            usage=dict(gateway.usage),
+            usage=dict(gateway.usage), trace_id=trace_id,
         )
     except DebateAborted as exc:
         return DebateResult(
             status="failed", transcript=list(ctx.speeches), error=str(exc),
             golden_quotes=drain_golden(1.0),
-            usage=dict(gateway.usage),
+            usage=dict(gateway.usage), trace_id=trace_id,
         )
     except Exception:
         # ISS-012 BE-5：graph.invoke 抛未预期异常时同样收割已完成的金句——
