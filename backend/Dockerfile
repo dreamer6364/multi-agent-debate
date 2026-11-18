@@ -7,7 +7,11 @@ WORKDIR /app
 # 缺它则容器内每场比赛都 CorpusError fail-fast，必须随镜像打包。
 COPY pyproject.toml ./
 COPY src ./src
-RUN pip install --no-cache-dir .
+# 依赖安装（B-2 实测修复）：容器内直连 pypi.org 在国内网络下 ReadTimeout，
+# 用清华镜像 + 超时/重试参数；可用 --build-arg PIP_INDEX_URL 覆盖（海外/企业源）。
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" \
+        --timeout 60 --retries 5 .
 
 # Prompt 资产与配置（运行时由 create_app 从 config.yaml 所在目录加载）
 COPY config.yaml ./

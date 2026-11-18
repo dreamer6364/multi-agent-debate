@@ -1,6 +1,6 @@
 # ISS-014（评审）面试官视角：AI 应用岗短板与工程硬伤清单
 
-**状态**：已全部修复/整理（B-1、B-3、A-1、A-4、C-1、C-4、A-5、B-4 代码已修；A-2/A-3/B-5/C-2/C-3/C-5 口径/措辞已整理；仅 B-2 docker 实测待环境就绪）
+**状态**：15 条全部处理（B-1/B-3/A-1/A-4/C-1/C-4/A-5/B-4 代码已修并全量验证；A-2/A-3/B-5/C-2/C-3/C-5 口径/措辞已整理；B-2 关键路径已实测通过、终态因 daemon 停止待补验）
 **评审日期**：2026-11-17
 **评审基线**：main @ `29a8c3d`（Redis 缓存接入后）
 **性质**：与 ISS-001~013 的"测试复现缺陷"不同——本清单是**招聘方视角**的审查结论，按"面试被追问的杀伤力"排序。每条含：事实证据、面试官潜台词、修复建议、预估工时。
@@ -83,7 +83,11 @@
 - **面试官潜台词**：现场 demo 打脸风险最高的一条。
 - **修复建议**：本机启动 Docker Desktop，实测 `docker compose up --build`，跑通健康检查 + 一场比赛。
 - **预估工时**：0.5h（daemon 就绪后）
-- **状态**：待修复（阻塞：本机 daemon）
+- **状态**：🟡 关键路径已实测通过，终态因环境停止未确认（2026-11-18）
+  - **实测发现并修复的真实缺陷**：后端首次 `docker compose build` **失败**——容器内直连 pypi.org `ReadTimeout`，pip 误报 `No matching distribution found for fastapi`。修复 `backend/Dockerfile`：`pip install --index-url 清华镜像 --timeout 60 --retries 5`，并留 `--build-arg PIP_INDEX_URL` 供海外/企业源覆盖；修复后后端镜像 **BUILD=0**；
+  - **已验证**：① 前端镜像 `tsc --noEmit && vite build` 容器内通过（1607 modules，4s）；② `docker compose up -d` 四容器（backend/frontend/mysql/redis）全 healthy；③ **B-3 迁移容器内实跑成功**（`alembic upgrade` 两条：baseline five tables → speeches add fallacies json）；④ 健康检查 `{"status":"ok","db":"ok"}`（经 nginx 反代）；⑤ 注册→登录→选题→开赛 API 全链路通过（debate id=1）；⑥ **容器内 GLM 真模型产出 51 条真实发言**（引擎正常推进，非 FakeLLM）；
+  - **未完成**：比赛在 25 分钟观察窗口内**未达终态**——GLM 免费档限速（min_interval≈15s/调用）+ 输出冗长使 lite 赛发言数远超本地 FakeLLM 的 23 条，属真模型成本特性而非交付缺陷；随后 Docker daemon 因环境重启停止（npipe 断连），无法继续确认 finished；
+  - **证据脚本**：`issues/evidence/_diag_b2_smoke.ps1`（纯 ASCII 输出，register→login→topics→debate→poll）。**结论**：一键交付链路（build/up/迁移/健康/开赛/真模型发言）已验证可用；"一场完整比赛 finished"待 daemon 持续运行时补验。
 
 ### B-3（P1）迁移没进部署路径——真实生产 bug
 - **事实**：`init_db` 走 `SQLModel.metadata.create_all`（`db/session.py:25`），Dockerfile/compose 启动链**不跑 `alembic upgrade head`**；`alembic/versions/` 已有 2 个迁移。`create_all` 对已存在表**不加列**——上线后任何加字段的发布必然运行时报错。与 `CONSTRAINTS V4`（"要改表结构只走 Alembic"）口径矛盾：约束写了，部署没执行。
@@ -161,7 +165,7 @@
 | 优先级 | 编号 | 项目 | 工时 | 消除的追问风险 |
 |--------|------|------|------|----------------|
 | 🔴 P0 | B-1 | GitHub Actions 三 job | 0.5h | ✅ 已修——"门禁在哪一步" |
-| 🔴 P0 | B-2 | `docker compose up --build` 实测 | 0.5h | 现场 demo 打脸 |
+| 🔴 P0 | B-2 | `docker compose up --build` 实测 | 0.5h | 🟡 关键路径已验（构建/迁移/健康/开赛/真模型发言），终态待 daemon 持续运行时补验 |
 | 🔴 P0 | A-1 | golden set + LLM-as-judge 评分脚本 | 2~3h | ✅ 已修——**"prompt 改了怎么证明没变差"（AI 岗核心）** |
 | 🟡 P1 | B-3 | alembic 进启动链路 | 0.5h | ✅ 已修——"加一列怎么上线"（真 bug） |
 | 🟡 P1 | A-4 | 单赛场次 token 上限 + 超限终止 | 1~1.5h | ✅ 已修——**"账单失控谁兜"** |
