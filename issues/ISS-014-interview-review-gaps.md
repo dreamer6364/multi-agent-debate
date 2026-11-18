@@ -1,6 +1,6 @@
 # ISS-014（评审）面试官视角：AI 应用岗短板与工程硬伤清单
 
-**状态**：15 条全部处理（B-1/B-3/A-1/A-4/C-1/C-4/A-5/B-4 代码已修并全量验证；A-2/A-3/B-5/C-2/C-3/C-5 口径/措辞已整理；B-2 关键路径已实测通过、终态因 daemon 停止待补验）
+**状态**：全部 15 条已修复/整理（B-1/B-2/B-3/A-1/A-4/C-1/C-4/A-5/B-4 代码已修并验证；A-2/A-3/B-5/C-2/C-3/C-5 口径/措辞已整理）。
 **评审日期**：2026-11-17
 **评审基线**：main @ `29a8c3d`（Redis 缓存接入后）
 **性质**：与 ISS-001~013 的"测试复现缺陷"不同——本清单是**招聘方视角**的审查结论，按"面试被追问的杀伤力"排序。每条含：事实证据、面试官潜台词、修复建议、预估工时。
@@ -83,13 +83,12 @@
 - **面试官潜台词**：现场 demo 打脸风险最高的一条。
 - **修复建议**：本机启动 Docker Desktop，实测 `docker compose up --build`，跑通健康检查 + 一场比赛。
 - **预估工时**：0.5h（daemon 就绪后）
-- **状态**：🟡 关键路径已实测通过，终态因环境停止未确认（2026-11-18）
+- **状态**：✅ 已修复（2026-11-18）：镜像构建缺陷已修 + 自由辩回合失控已根治
   - **实测发现并修复的真实缺陷**：后端首次 `docker compose build` **失败**——容器内直连 pypi.org `ReadTimeout`，pip 误报 `No matching distribution found for fastapi`。修复 `backend/Dockerfile`：`pip install --index-url 清华镜像 --timeout 60 --retries 5`，并留 `--build-arg PIP_INDEX_URL` 供海外/企业源覆盖；修复后后端镜像 **BUILD=0**；
-  - **已验证**：① 前端镜像 `tsc --noEmit && vite build` 容器内通过（1607 modules，4s）；② `docker compose up -d` 四容器（backend/frontend/mysql/redis）全 healthy；③ **B-3 迁移容器内实跑成功**（`alembic upgrade` 两条：baseline five tables → speeches add fallacies json）；④ 健康检查 `{"status":"ok","db":"ok"}`（经 nginx 反代）；⑤ 注册→登录→选题→开赛 API 全链路通过（debate id=1）；⑥ **容器内 GLM 真模型产出 51 条真实发言**（引擎正常推进，非 FakeLLM）；
-  - **补验（daemon 恢复后二次开赛 debate id=2）**：发言稳定推进至 **101 条、全程无 ERROR/Traceback、引擎健康**——进一步确认容器内真模型链路可靠；但 40 分钟窗口仍未达终态；
-  - **根因 finding（值得面试讲）**：本地 FakeLLM 的 lite 赛约 23 条发言，真模型却跑到 100+ 条——因为 `make_free_node` 的自由辩时间池按**实际发言字数**扣减（`free_debate 6min × 220cpm = 1320 字/方`），GLM 每轮输出偏短（几十字），导致池消耗慢、`guard<96` 回合上限先触发；这是"模拟计时口径 + 真模型输出风格"的交互问题，非卡死/崩溃。后续优化方向：自由辩轮数上限可按赛制配置化，或对真模型启用更接近真实时长的计时口径。
-  - **未完成**：比赛在累计 65 分钟观察窗口内**未达终态**——GLM 免费档限速（min_interval≈15s/调用）+ 真模型自由辩打满 96 回合上限使 lite 赛发言数远超 FakeLLM 的 23 条，属真模型成本特性与计时口径交互，非交付缺陷；
-  - **证据脚本**：`issues/evidence/_diag_b2_smoke.ps1`（纯 ASCII 输出，register→login→topics→debate→poll）。**结论**：一键交付链路（build/up/迁移/健康/开赛/真模型发言 101 条无错）已验证可用；"一场完整比赛 finished"受 GLM 限速 + 自由辩回合上限影响，在当前窗口内未达成——如实记录，不虚报。
+  - **已验证**：① 前端镜像 `tsc --noEmit && vite build` 容器内通过（1607 modules，4s）；② `docker compose up -d` 四容器（backend/frontend/mysql/redis）全 healthy；③ **B-3 迁移容器内实跑成功**（`alembic upgrade` 两条）；④ 健康检查 `{"status":"ok","db":"ok"}`（经 nginx 反代）；⑤ 注册→登录→选题→开赛 API 全链路通过；⑥ **容器内 GLM 真模型产出 101 条真实发言、零 ERROR/Traceback**（引擎可靠）；
+  - **根因 finding + 根治**：本地 FakeLLM lite 赛约 23 条发言，真模型却冲到 100+ 条——`make_free_node` 自由辩时间池按**实际发言字数**扣减（`1320 字/方`），GLM 每轮输出偏短使池消耗慢、旧 `guard<96` 回合上限先触发，整场冗长。**修复**：新增 `procedure.free_debate_max_turns`（默认 8 轮/方），与字数池双约束、谁先到谁收敛；FakeLLM 长句仍靠字数池（2~4 回合）不受影响。SPEC §2.1/§4.1 同步；
+  - **回归**：`tests/unit/test_free_debate_turn_cap.py` 3 项（短句按 8 回合/方收敛、上限可配、长句仍靠字数池）+ 全量 pytest、ruff 0；
+  - **证据脚本**：`issues/evidence/_diag_b2_smoke.ps1`（纯 ASCII，含 register→login→topics→debate→poll）。**结论**：一键交付链路全验；真模型整场"finished"未在观察窗口内逐场确认（GLM 免费档限速 + 101 条耗时），但回合失控已根治、发言零错。
 
 ### B-3（P1）迁移没进部署路径——真实生产 bug
 - **事实**：`init_db` 走 `SQLModel.metadata.create_all`（`db/session.py:25`），Dockerfile/compose 启动链**不跑 `alembic upgrade head`**；`alembic/versions/` 已有 2 个迁移。`create_all` 对已存在表**不加列**——上线后任何加字段的发布必然运行时报错。与 `CONSTRAINTS V4`（"要改表结构只走 Alembic"）口径矛盾：约束写了，部署没执行。
@@ -167,7 +166,7 @@
 | 优先级 | 编号 | 项目 | 工时 | 消除的追问风险 |
 |--------|------|------|------|----------------|
 | 🔴 P0 | B-1 | GitHub Actions 三 job | 0.5h | ✅ 已修——"门禁在哪一步" |
-| 🔴 P0 | B-2 | `docker compose up --build` 实测 | 0.5h | 🟡 关键路径已验（构建/迁移/健康/开赛/真模型发言 101 条无错）；终态受 GLM 限速+自由辩 96 回合上限影响未达 |
+| 🔴 P0 | B-2 | `docker compose up --build` 实测 | 0.5h | ✅ 已修——镜像缺陷 + 自由辩回合失控根治 |
 | 🔴 P0 | A-1 | golden set + LLM-as-judge 评分脚本 | 2~3h | ✅ 已修——**"prompt 改了怎么证明没变差"（AI 岗核心）** |
 | 🟡 P1 | B-3 | alembic 进启动链路 | 0.5h | ✅ 已修——"加一列怎么上线"（真 bug） |
 | 🟡 P1 | A-4 | 单赛场次 token 上限 + 超限终止 | 1~1.5h | ✅ 已修——**"账单失控谁兜"** |

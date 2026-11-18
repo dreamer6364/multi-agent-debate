@@ -25,6 +25,7 @@ class ProcedureConfig(BaseModel):
     speed_cpm: int = 220
     phases: PhasesConfig = PhasesConfig()
     free_debate_turn_cap: float = 1.5  # v2.9.3：单轮上限放宽（0.5→1.5 分钟），允许完整表达不硬掐
+    free_debate_max_turns: int = 8  # 每方自由辩回合上限（ISS-014 B-2：真模型短句致字数池消耗慢，防赛程冗长）
 
 
 class TemperatureConfig(BaseModel):

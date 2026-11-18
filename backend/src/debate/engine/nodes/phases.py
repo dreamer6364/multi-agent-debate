@@ -584,19 +584,24 @@ def make_free_node(ctx: DebateContext):
             turn_cap_minutes=ctx.config.procedure.free_debate_turn_cap,
         )
         rotation_index = {Camp.PRO: 0, Camp.CON: 0}
+        turn_count = {Camp.PRO: 0, Camp.CON: 0}  # ISS-014 B-2：每方实际发言回合（含连讲）
+        max_turns = max(1, int(getattr(ctx.config.procedure, "free_debate_max_turns", 8)))
         camp = Camp.PRO  # 正方先手（SPEC §4.1）
+        # 防御性总上限：每方上限 ×2 + 少量换手余量；正常由 turn_count/字数池先收敛
+        guard_limit = max_turns * 2 + 8
         guard = 0
         ctx.emit("phase_start", phase=phase, name=phase_name,
                  actors=FREE_ROTATION[Camp.PRO] + FREE_ROTATION[Camp.CON],
                  budget_words=clock.pools[Camp.PRO].remaining)
-        while not clock.finished and guard < 96:
+        while not clock.finished and guard < guard_limit:
             guard += 1
             ctx.check_cancel()
-            if clock.pools[camp].exhausted:
+            if clock.pools[camp].exhausted or turn_count[camp] >= max_turns:
                 camp = FreeDebateClock.other(camp)
                 continue
             speaker = FREE_ROTATION[camp][rotation_index[camp] % len(FREE_ROTATION[camp])]
             rotation_index[camp] += 1
+            turn_count[camp] += 1
             cap = min(clock.turn_cap_words, clock.pools[camp].remaining)
             if cap <= 0:  # ISS-012 BE-6：单轮上限/时间池配 0 时跳过该轮，不熔断整场
                 break

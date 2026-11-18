@@ -44,6 +44,7 @@ procedure:
     closing: 3.0            # 总结陈词（每人）
     closing_ceremony: 1.5   # 主席结束致辞（仅导出口径，不计入赛制时长）
   free_debate_turn_cap: 0.5 # 自由辩单次发言上限（分钟，模拟短打）
+  free_debate_max_turns: 8  # 每方自由辩回合上限（ISS-014 B-2，与字数池双约束）
 model:
   temperature: { debater: 0.85, judge: 0.3, chair: 0.3, digest: 0.2 }
   max_retries: 3
@@ -178,7 +179,7 @@ export:
 | 4 | 驳论 | con-2 → pro-2 | 440 字 |
 | 5 | 攻辩盘问 | (pro-3 盘 ↔ 对方一/二/四辩轮流答) → (con-3 同理) | 每组 440 字 |
 | 6 | 攻辩小结 | pro-3 → con-3 | 330 字 |
-| 7 | 自由辩论 | pro 先，双方交替；单次上限 330 字（`free_debate_turn_cap`，短打可三两句、胶着时充分展开） | 每队 1320 字池 |
+| 7 | 自由辩论 | pro 先，双方交替；单次上限 330 字（`free_debate_turn_cap`，短打可三两句、胶着时充分展开）；**每方回合上限 `free_debate_max_turns`（默认 8）与字数池双约束，谁先到谁收敛**（ISS-014 B-2：真模型短句致字数池消耗慢，防赛程冗长） | 每队 1320 字池 + 每方 8 回合上限 |
 | 8 | 总结陈词 | con-4 → pro-4 | 660 字 |
 | 9 | 评委点评 | 3 评委并行（各出 ScoreCard + 点评文本） | — |
 | 10 | 宣判闭幕 | chair（投票、总分、胜方、致谢） | — |
