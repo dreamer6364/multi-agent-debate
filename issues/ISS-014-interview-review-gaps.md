@@ -86,8 +86,10 @@
 - **状态**：🟡 关键路径已实测通过，终态因环境停止未确认（2026-11-18）
   - **实测发现并修复的真实缺陷**：后端首次 `docker compose build` **失败**——容器内直连 pypi.org `ReadTimeout`，pip 误报 `No matching distribution found for fastapi`。修复 `backend/Dockerfile`：`pip install --index-url 清华镜像 --timeout 60 --retries 5`，并留 `--build-arg PIP_INDEX_URL` 供海外/企业源覆盖；修复后后端镜像 **BUILD=0**；
   - **已验证**：① 前端镜像 `tsc --noEmit && vite build` 容器内通过（1607 modules，4s）；② `docker compose up -d` 四容器（backend/frontend/mysql/redis）全 healthy；③ **B-3 迁移容器内实跑成功**（`alembic upgrade` 两条：baseline five tables → speeches add fallacies json）；④ 健康检查 `{"status":"ok","db":"ok"}`（经 nginx 反代）；⑤ 注册→登录→选题→开赛 API 全链路通过（debate id=1）；⑥ **容器内 GLM 真模型产出 51 条真实发言**（引擎正常推进，非 FakeLLM）；
-  - **未完成**：比赛在 25 分钟观察窗口内**未达终态**——GLM 免费档限速（min_interval≈15s/调用）+ 输出冗长使 lite 赛发言数远超本地 FakeLLM 的 23 条，属真模型成本特性而非交付缺陷；随后 Docker daemon 因环境重启停止（npipe 断连），无法继续确认 finished；
-  - **证据脚本**：`issues/evidence/_diag_b2_smoke.ps1`（纯 ASCII 输出，register→login→topics→debate→poll）。**结论**：一键交付链路（build/up/迁移/健康/开赛/真模型发言）已验证可用；"一场完整比赛 finished"待 daemon 持续运行时补验。
+  - **补验（daemon 恢复后二次开赛 debate id=2）**：发言稳定推进至 **101 条、全程无 ERROR/Traceback、引擎健康**——进一步确认容器内真模型链路可靠；但 40 分钟窗口仍未达终态；
+  - **根因 finding（值得面试讲）**：本地 FakeLLM 的 lite 赛约 23 条发言，真模型却跑到 100+ 条——因为 `make_free_node` 的自由辩时间池按**实际发言字数**扣减（`free_debate 6min × 220cpm = 1320 字/方`），GLM 每轮输出偏短（几十字），导致池消耗慢、`guard<96` 回合上限先触发；这是"模拟计时口径 + 真模型输出风格"的交互问题，非卡死/崩溃。后续优化方向：自由辩轮数上限可按赛制配置化，或对真模型启用更接近真实时长的计时口径。
+  - **未完成**：比赛在累计 65 分钟观察窗口内**未达终态**——GLM 免费档限速（min_interval≈15s/调用）+ 真模型自由辩打满 96 回合上限使 lite 赛发言数远超 FakeLLM 的 23 条，属真模型成本特性与计时口径交互，非交付缺陷；
+  - **证据脚本**：`issues/evidence/_diag_b2_smoke.ps1`（纯 ASCII 输出，register→login→topics→debate→poll）。**结论**：一键交付链路（build/up/迁移/健康/开赛/真模型发言 101 条无错）已验证可用；"一场完整比赛 finished"受 GLM 限速 + 自由辩回合上限影响，在当前窗口内未达成——如实记录，不虚报。
 
 ### B-3（P1）迁移没进部署路径——真实生产 bug
 - **事实**：`init_db` 走 `SQLModel.metadata.create_all`（`db/session.py:25`），Dockerfile/compose 启动链**不跑 `alembic upgrade head`**；`alembic/versions/` 已有 2 个迁移。`create_all` 对已存在表**不加列**——上线后任何加字段的发布必然运行时报错。与 `CONSTRAINTS V4`（"要改表结构只走 Alembic"）口径矛盾：约束写了，部署没执行。
@@ -165,7 +167,7 @@
 | 优先级 | 编号 | 项目 | 工时 | 消除的追问风险 |
 |--------|------|------|------|----------------|
 | 🔴 P0 | B-1 | GitHub Actions 三 job | 0.5h | ✅ 已修——"门禁在哪一步" |
-| 🔴 P0 | B-2 | `docker compose up --build` 实测 | 0.5h | 🟡 关键路径已验（构建/迁移/健康/开赛/真模型发言），终态待 daemon 持续运行时补验 |
+| 🔴 P0 | B-2 | `docker compose up --build` 实测 | 0.5h | 🟡 关键路径已验（构建/迁移/健康/开赛/真模型发言 101 条无错）；终态受 GLM 限速+自由辩 96 回合上限影响未达 |
 | 🔴 P0 | A-1 | golden set + LLM-as-judge 评分脚本 | 2~3h | ✅ 已修——**"prompt 改了怎么证明没变差"（AI 岗核心）** |
 | 🟡 P1 | B-3 | alembic 进启动链路 | 0.5h | ✅ 已修——"加一列怎么上线"（真 bug） |
 | 🟡 P1 | A-4 | 单赛场次 token 上限 + 超限终止 | 1~1.5h | ✅ 已修——**"账单失控谁兜"** |
