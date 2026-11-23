@@ -76,7 +76,16 @@
 - **面试官潜台词**："你的门禁在哪一步？我 clone 下来跑红算谁的？"
 - **修复建议**：GitHub Actions 单 workflow 三 job（backend pytest+ruff / frontend tsc+vitest / vite build）。
 - **预估工时**：0.5h
-- **状态**：✅ 已修复（`.github/workflows/ci.yml`，backend job：MySQL 8 service + root 自动建 `mad_test_gwN` 隔离库 + `uv sync --frozen` + ruff + pytest -n 4（失败自动 `--lf` 复跑一次甄别 B-4 flake）；frontend job：`npm ci` + tsc + vitest + vite build；YAML 解析、`uv lock --check`、`uv run ruff`/`uv run pytest` 本地等价命令均验证通过。注：无 remote，Actions 实际首跑待推送到 GitHub 后确认）
+- **状态**：✅ 已修复并**经 GitHub Actions 真实首跑验证全绿**（2026-11-23，run `45156605217`：frontend job 19s ✅ + backend job 2m39s ✅，coverage artifact 上传）
+  - **首次实跑连续抓到并修复 6 个"本地绿、clone 红"缺陷**（这正是 CI 的价值）：
+    1. MySQL service `options` 含 mysqld 参数（`--character-set-server`）→ `docker create` 报 unknown flag → 删参数（连接串自带 charset）；
+    2. `third_party/elenchus` 被 `.gitignore` 排除、从未入库 → clone 后 `Distribution not found` → `.gitignore` 白名单 + 提交 47 个源码文件；
+    3. `uv run pytest` 隐式 re-sync 移除不在 lock 的 elenchus → 可用性探测 ImportError → 直接用 `.venv/bin/python -m pytest`；
+    4. CI 无 `.env` 致 `MODEL_DEBATER` 空 → 注入假 env（不真调 LLM）；
+    5. setup-uv 的 `VIRTUAL_ENV` 指向仓库根与 `backend/.venv` 不一致 → elenchus 装错环境 → `--python .venv/bin/python` 显式装；
+    6. （本地等价验证阶段）ruff 范围/依赖锁定等；
+  - **最终配置**：backend job = MySQL 8 service + `uv sync --frozen` + `uv pip install --python .venv/bin/python elenchus` + `.venv/bin/python -m ruff` + `.venv/bin/python -m pytest --cov` + artifact；frontend job = `npm ci` + tsc + vitest + vite build；
+  - **面试口径**：CI 不是摆设——首次在真实 Actions 上跑就连抓 6 个本地发现不了的交付缺陷（依赖没入库、环境路径不一致、隐式 sync 移除依赖），修完后两 job 全绿；"clone 下来跑绿"从口号变成验证过的事实。仅余 Node 20 deprecated 黄警告（GitHub 强制升 Node 24，非致命）。
 
 ### B-2（P0）Docker 构建从未实际验证
 - **事实**：ISS-004 修复后 docker daemon 一直未启动，`docker build`/`compose up --build` 至今未跑通（`docker compose config --quiet` 仅静态校验通过）；"一键交付"是未兑现承诺。
