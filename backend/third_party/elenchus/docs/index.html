@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Elenchus — Socratic cross-examination for text</title>
+<meta name="description" content="Detect logical fallacies, manipulation, bias and scams with any LLM — from the CLI, your browser, MCP, Discord, or Slack.">
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #6b7280; --line: #e5e7eb;
+    --accent: #7c5cff; --accent-soft: rgba(124, 92, 255, .1); --ok: #16a34a; --warn: #f0a000; --bad: #e5484d;
+    --code-bg: #0f1117; --code-ink: #e6e6e6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0e1013; --panel: #171a1f; --ink: #e8eaed; --muted: #9aa1ab; --line: #262b33;
+            --accent-soft: rgba(124, 92, 255, .16); }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+  header.hero { padding: 72px 0 48px; text-align: center; }
+  .hero .mark { font-size: 44px; }
+  .hero h1 { font-size: 40px; letter-spacing: -.5px; margin: 8px 0 10px; }
+  .hero h1 em { color: var(--accent); font-style: normal; }
+  .hero p.tag { color: var(--muted); font-size: 19px; max-width: 640px; margin: 0 auto; }
+  .hero .cta { margin-top: 28px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn { display: inline-block; padding: 11px 20px; border-radius: 10px; font-weight: 600; }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.ghost { border: 1px solid var(--line); color: var(--ink); }
+  .btn:hover { text-decoration: none; filter: brightness(1.06); }
+  section { padding: 40px 0; }
+  section h2 { font-size: 24px; margin-bottom: 6px; }
+  section p.lead { color: var(--muted); margin-bottom: 22px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+  .card .emoji { font-size: 26px; }
+  .card h3 { font-size: 16px; margin: 8px 0 4px; }
+  .card p { color: var(--muted); font-size: 14px; }
+  .card .n { color: var(--accent); font-weight: 700; }
+  pre { background: var(--code-bg); color: var(--code-ink); border-radius: 12px; padding: 18px 20px;
+    overflow-x: auto; font: 13.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre .c { color: #8b949e; }
+  pre .p { color: #b39dff; }
+  .shots { display: grid; gap: 26px; }
+  .shot { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .shot img { display: block; width: 100%; height: auto; }
+  .shot figcaption { padding: 13px 18px; font-size: 14px; color: var(--muted); border-top: 1px solid var(--line); }
+  .shot figcaption b { color: var(--ink); }
+  .surfaces li { margin: 10px 0; color: var(--muted); }
+  .surfaces li b { color: var(--ink); }
+  .surfaces code, p code, li code { background: var(--accent-soft); border-radius: 6px; padding: 1px 6px;
+    font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); }
+  footer { border-top: 1px solid var(--line); padding: 28px 0 48px; margin-top: 40px;
+    color: var(--muted); font-size: 14px; text-align: center; }
+  .pill-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .pill { font-size: 13px; border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header class="hero wrap">
+  <div class="mark">⚖</div>
+  <h1>Elenchus <em>cross-examines</em> your text</h1>
+  <p class="tag">Socratic scrutiny for arguments, anywhere you read or write: detect logical fallacies,
+  bad-faith rhetoric, bias, and manipulation — with any LLM, under your own API key.</p>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/quetzaluz/elenchus">View on GitHub</a>
+    <a class="btn ghost" href="#quickstart">Quickstart</a>
+  </div>
+  <div class="pill-row" style="justify-content:center">
+    <span class="pill">CLI</span><span class="pill">Chrome extension</span><span class="pill">MCP</span>
+    <span class="pill">Discord</span><span class="pill">Slack</span><span class="pill">Python 3.10+</span><span class="pill">MIT</span>
+  </div>
+</header>
+
+<section class="wrap" id="checks">
+  <h2>Four checks, 57 techniques</h2>
+  <p class="lead">Each check is a set of individually toggleable techniques, defined in data files — adding
+  one requires no code. Sensitivity (lenient / balanced / strict) tunes how eagerly they fire.</p>
+  <div class="cards">
+    <div class="card"><div class="emoji">🧠</div><h3>Fallacy check</h3>
+      <p><span class="n">25 techniques</span> — ad hominem, strawman, false dilemma, bandwagon, motte-and-bailey, and friends.</p></div>
+    <div class="card"><div class="emoji">🎭</div><h3>Rhetoric &amp; debate tactics</h3>
+      <p><span class="n">14 techniques</span> — gish gallop, sealioning, whataboutism, loaded questions, tone policing.</p></div>
+    <div class="card"><div class="emoji">🪞</div><h3>Bias &amp; framing</h3>
+      <p><span class="n">10 techniques</span> — spin, euphemism, weasel words, false balance, cherry-picked framing.</p></div>
+    <div class="card"><div class="emoji">🎣</div><h3>Scam &amp; manipulation</h3>
+      <p><span class="n">8 techniques</span> — fake urgency, authority impersonation, advance-fee patterns, guilt hooks.</p></div>
+  </div>
+</section>
+
+<section class="wrap" id="quickstart">
+  <h2>Quickstart</h2>
+  <p class="lead">Core install is dependency-light; providers are extras. A stub mode works with no API key at all.</p>
+<pre><span class="c"># try it with zero setup (canned output, no key)</span>
+pip install elenchus
+LLM_PROVIDER=stub elenchus analyze "Everyone knows this is true."
+
+<span class="c"># point it at a real model</span>
+pip install "elenchus[anthropic]"        <span class="c"># or [openai] — also covers Google</span>
+export ANTHROPIC_API_KEY=sk-ant-...
+elenchus analyze "My opponent is a liar, so his plan fails." --check all
+
+<span class="c"># configure visually, or serve the browser extension</span>
+elenchus web            <span class="c"># visual config builder → elenchus.yaml</span>
+elenchus serve          <span class="c"># localhost API for the Chrome extension</span></pre>
+</section>
+
+<section class="wrap" id="extension">
+  <h2>In your browser</h2>
+  <p class="lead">A personal Chrome extension (<code>chrome-extension/</code>, load unpacked) turns Elenchus
+  into a reading and writing companion. Everything stays on your machine — the extension talks only to
+  <code>elenchus serve</code> on localhost, which refuses requests from web-page origins.</p>
+  <div class="shots">
+    <figure class="shot">
+      <img src="assets/elenchus-demo.gif" alt="Animated demo: selecting a paragraph shows a results panel; toggling page scan underlines fallacious sentences; hovering shows an explanation tooltip" loading="lazy">
+      <figcaption><b>30-second tour</b> — select-and-check, then page scan with live underlines and hover
+      explanations.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="assets/page-scan-tooltip.jpg" alt="Page scan mode: amber underlines on fallacious sentences in an article, with a tooltip explaining an ad hominem" loading="lazy">
+      <figcaption><b>Page scan</b> — toggle it on a page and Elenchus underlines flawed reasoning in what
+      you're reading, and keeps watching as new content arrives (chat apps, live threads). Hover for the
+      why; click for details; the pill lists every finding.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="assets/selection-check.jpg" alt="Selection check: a highlighted paragraph with a results panel identifying a false dilemma" loading="lazy">
+      <figcaption><b>Selection check</b> — highlight any text, hit the ⚖ chip (or right-click), and get the
+      verdict with quotes and plain-language explanations.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="assets/live-writing.jpg" alt="Live writing mode: red wavy underlines under weak arguments in a rich-text editor with a findings count badge" loading="lazy">
+      <figcaption><b>As you write</b> — Grammarly-style: pause typing and your draft gets re-examined;
+      weak reasoning is underlined in place with a count badge on the field.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="wrap" id="surfaces">
+  <h2>Every surface, one engine</h2>
+  <p class="lead">One resolved config (file, env, or the visual builder) drives every frontend.</p>
+  <ul class="surfaces">
+    <li><b>CLI</b> — <code>elenchus analyze "…" --check rhetoric --json</code>, pipes welcome</li>
+    <li><b>MCP server</b> — <code>elenchus mcp</code> exposes <code>analyze</code> / <code>list_checks</code> to Claude Desktop, Claude Code, IDEs</li>
+    <li><b>Discord &amp; Slack bots</b> — a slash command and message action per check, auto-registered</li>
+    <li><b>Localhost API</b> — <code>elenchus serve</code> for the browser extension and your own tools</li>
+    <li><b>Visual config builder</b> — <code>elenchus web</code> renders the same <code>elenchus.yaml</code> the CLI writes</li>
+  </ul>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>MIT licensed. Built by <a href="https://github.com/quetzaluz">Cyd La Luz</a>.
+    <a href="https://github.com/quetzaluz/elenchus">github.com/quetzaluz/elenchus</a></p>
+  </div>
+</footer>
+
+</body>
+</html>

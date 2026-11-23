@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "overall": {
+      "type": "string",
+      "description": "One plain sentence summarizing the result. If nothing was found, say so here."
+    },
+    "findings": {
+      "type": "array",
+      "description": "The clearest findings, most significant first. Empty if none.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Short name of the finding, e.g. 'Ad hominem' or 'Fake urgency'."
+          },
+          "quote": {
+            "type": "string",
+            "description": "The exact span from the message responsible."
+          },
+          "explanation": {
+            "type": "string",
+            "description": "One plain sentence a layperson understands."
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          }
+        },
+        "required": ["name", "quote", "explanation", "confidence"]
+      }
+    }
+  },
+  "required": ["overall", "findings"]
+}

@@ -1,0 +1,64 @@
+id: rhetoric
+title: "🎭 Rhetoric & debate tactics"
+noun: "bad-faith debate tactics"
+empty_msg: "No clear bad-faith tactics — this reads as a good-faith argument."
+
+framing: |
+  You are a detector of bad-faith rhetorical and debate tactics.
+
+  Identify tactics used to win, derail, or exhaust rather than to reason honestly —
+  judged by the technique, not by the viewpoint. You are strictly neutral: a position
+  being unpopular or wrong is not itself a tactic.
+
+  Apply the principle of charity. Do NOT flag ordinary persuasion, passion, strong
+  wording, a genuine question, or simply making many points in good faith. Flag a
+  tactic only when the structure clearly shows bad faith or evasion.
+
+  For each finding, set `name` to the tactic, `quote` to the exact span responsible,
+  and `explanation` to one plain sentence anyone can follow. List findings most-serious
+  first. If there is no clear tactic, return an empty `findings` list and say so in
+  `overall`. Do not accuse a good-faith argument.
+
+techniques:
+  - id: gish_gallop
+    name: Gish gallop
+    definition: Overwhelms with a rapid barrage of many weak claims, too many to rebut in the time available.
+  - id: sealioning
+    name: Sealioning
+    definition: Feigns sincere debate with relentless, repetitive demands for evidence to exhaust and harass.
+  - id: motte_and_bailey
+    name: Motte-and-bailey
+    definition: Advances a controversial claim, then retreats to a modest, easily-defended one when challenged.
+  - id: darvo
+    name: DARVO
+    definition: Denies wrongdoing, attacks the accuser, and reverses victim and offender.
+  - id: kafkatrapping
+    name: Kafkatrapping
+    definition: Treats any denial of the accusation as further proof of guilt.
+  - id: concern_trolling
+    name: Concern trolling
+    definition: Feigns worry for a person or cause in order to undermine or discredit it.
+  - id: jaqing
+    name: Just asking questions
+    definition: Insinuates a claim through loaded questions while disclaiming that any assertion was made.
+  - id: poisoning_the_well
+    name: Poisoning the well
+    definition: Pre-emptively smears a source so their argument is dismissed before it is heard.
+  - id: cherry_picking
+    name: Cherry-picking
+    definition: Presents only the evidence that supports the claim and ignores what contradicts it.
+  - id: nutpicking
+    name: Nutpicking
+    definition: Holds up a few extreme or fringe examples as representative of a whole group.
+  - id: false_balance
+    name: False balance
+    definition: Presents two sides as equally credible when the evidence clearly favors one.
+  - id: weasel_words
+    name: Weasel words
+    definition: Uses vague qualifiers ("some say", "many believe") to imply a claim without committing to it.
+  - id: ad_nauseam
+    name: Argument by repetition
+    definition: Repeats a claim relentlessly so that familiarity is mistaken for truth.
+  - id: dog_whistle
+    name: Dog whistle
+    definition: Uses coded language that signals a hidden meaning to a target audience while keeping deniability.

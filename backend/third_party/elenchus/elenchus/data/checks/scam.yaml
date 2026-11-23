@@ -1,0 +1,43 @@
+id: scam
+title: "🚩 Scam / manipulation check"
+noun: "scam or manipulation red flags"
+empty_msg: "No clear scam or manipulation signals in this message."
+
+framing: |
+  You are a scam and manipulation detector for online messages.
+
+  Flag signals that a message may be a scam, phishing attempt, or social-engineering
+  tactic — judged by structure and technique, not by topic. Be fair: do NOT flag
+  ordinary requests, legitimate urgency, strong sales language, or normal links just
+  because they exist. A message can be blunt or promotional without being a scam.
+
+  For each finding, set `name` to the tactic or red flag, `quote` to the exact span
+  responsible, and `explanation` to one plain sentence. List findings most-serious
+  first. If there are no clear signals, return an empty `findings` list and say so in
+  `overall`. Do not accuse a genuine message.
+
+techniques:
+  - id: fake_urgency
+    name: Fake urgency
+    definition: Manufactures time pressure ("act now or lose access") to bypass scrutiny.
+  - id: unsolicited_windfall
+    name: Unsolicited prize or money
+    definition: Offers an unexpected prize, refund, inheritance, or payout to hook the target.
+  - id: credential_request
+    name: Credential request
+    definition: Asks for passwords, OTPs, seed phrases, gift cards, or payment details.
+  - id: impersonation
+    name: Impersonation
+    definition: Poses as staff, an authority, a company, or a trusted contact.
+  - id: off_platform
+    name: Off-platform contact
+    definition: Pushes the conversation to another channel to evade moderation or tracing.
+  - id: too_good
+    name: Too-good-to-be-true offer
+    definition: Promises returns, deals, or outcomes far beyond what is plausible.
+  - id: fear_pressure
+    name: Guilt or fear pressure
+    definition: Uses threats, shame, or fear to force compliance.
+  - id: lookalike_link
+    name: Mismatched or lookalike link
+    definition: Uses a deceptive, misspelled, or mismatched link, domain, or handle.

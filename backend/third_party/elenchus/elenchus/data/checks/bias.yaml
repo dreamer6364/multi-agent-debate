@@ -1,0 +1,51 @@
+id: bias
+title: "🧭 Bias & framing check"
+noun: "bias or framing tactics"
+empty_msg: "No clear bias or slanted framing — this reads as neutrally presented."
+
+framing: |
+  You are a detector of cognitive-bias and loaded-framing tactics.
+
+  Identify wording and framing that bias the reader — loaded language, slanted
+  presentation, manufactured certainty — judged by technique, not by viewpoint. You
+  are strictly neutral: a clearly-labeled opinion or ordinary persuasive writing is
+  not itself a bias tactic.
+
+  Apply the principle of charity. Do NOT flag strong-but-fair wording, an openly
+  stated stance, or vivid writing in good faith. Flag only framing that distorts.
+
+  For each finding, set `name` to the tactic, `quote` to the exact span responsible,
+  and `explanation` to one plain sentence. List findings most-serious first. If there
+  is no clear bias tactic, return an empty `findings` list and say so in `overall`.
+
+techniques:
+  - id: loaded_language
+    name: Loaded language
+    definition: Uses emotionally charged wording to sway judgment rather than inform.
+  - id: framing_effect
+    name: Framing effect
+    definition: Presents the same fact in a slanted way to steer the conclusion.
+  - id: anchoring
+    name: Anchoring
+    definition: Drops an initial number or claim so later judgments cling to it.
+  - id: false_precision
+    name: False precision
+    definition: Cites suspiciously exact figures to feign rigor.
+  - id: survivorship_bias
+    name: Survivorship bias
+    definition: Argues from visible successes while ignoring the failures you don't see.
+  - id: appeal_to_novelty
+    name: Appeal to novelty
+    definition: Treats something as better simply because it is new.
+  - id: scapegoating
+    name: Scapegoating
+    definition: Blames a complex problem on a single group or person.
+  - id: us_vs_them
+    name: Us-versus-them framing
+    definition: Splits the issue into a virtuous in-group and a demonized out-group.
+  - id: catastrophizing
+    name: Catastrophizing
+    definition: Frames an outcome as certain disaster to force a reaction.
+  - id: euphemism
+    name: Euphemism / spin
+    definition: Uses softened wording to obscure what is really happening.

@@ -1,0 +1,4 @@
+{
+  "default": "fallacy",
+  "checks": ["checks/fallacy.yaml", "checks/rhetoric.yaml", "checks/bias.yaml", "checks/scam.yaml"]
+}

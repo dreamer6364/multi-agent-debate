@@ -1,0 +1,8 @@
+{
+  "default": "balanced",
+  "levels": {
+    "lenient": "Sensitivity: LENIENT. Only report clear, serious {noun} you are highly confident about; when in doubt, leave it out. Report at most 3.",
+    "balanced": "Sensitivity: BALANCED. Report {noun} that genuinely matter and skip borderline cases. Report at most 5.",
+    "strict": "Sensitivity: STRICT. Also surface subtler or lower-confidence {noun}, marking uncertain ones as low confidence. Report at most 7."
+  }
+}

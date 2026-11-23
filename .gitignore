@@ -46,7 +46,13 @@ frontend/dist/
 dist/
 build/
 debate-e2e.db
-third_party/
+# 第三方源码：elenchus 是运行依赖，必须入库（B-2 CI 实测发现未提交）；其余 third_party 保持忽略
+third_party/*
+!third_party/elenchus/
+third_party/elenchus/build/
+third_party/elenchus/*.egg-info/
+third_party/elenchus/docs/
+third_party/elenchus/tests/
 
 # ISS-006: database files and debug leftovers must never be committed
 *.db
