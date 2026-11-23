@@ -31,6 +31,10 @@ jobs:
     env:
       # root 账号：conftest 需 CREATE DATABASE 建 mad_test_gwN 隔离库（ISS-005）
       TEST_MYSQL_URL: mysql+asyncmy://root:ci-root-password@127.0.0.1:3306/
+      # 网关工厂测试需要非空模型名与思考关闭透传（CI 无 .env，用假值，不真调 LLM）
+      MODEL_DEBATER: glm-4.5-flash
+      MODEL_OFFICIAL: glm-4.5-flash
+      LLM_EXTRA_BODY_JSON: '{"thinking": {"type": "disabled"}}'
     steps:
       - uses: actions/checkout@v4
 
@@ -56,9 +60,10 @@ jobs:
         run: |
           # ISS-014 C-4：先出覆盖率报告看基线数字，暂不设 --cov-fail-under（避免拍脑袋门槛）。
           # 注意用 --cov=src/debate 而非 --cov=debate：后者在本 editable 布局下抓不到数据。
-          if ! uv run pytest -q -n 4 --cov=src/debate --cov-report=term-missing --cov-report=xml; then
+          # --no-sync：避免 uv run 隐式 re-sync 移除不在 lock 里的 elenchus（上一步已显式安装）
+          if ! uv run --no-sync pytest -q -n 4 --cov=src/debate --cov-report=term-missing --cov-report=xml; then
             echo "::warning::全量首次失败，复跑失败用例（ISS-014 B-4 已知边界 flake）"
-            uv run pytest -q --lf -n 4  # 复跑只甄别 flake，覆盖率报告保留首次全量的数据
+            uv run --no-sync pytest -q --lf -n 4  # 复跑只甄别 flake，覆盖率报告保留首次全量的数据
           fi
 
       - name: Upload coverage report
