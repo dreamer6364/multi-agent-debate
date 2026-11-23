@@ -49,21 +49,23 @@ jobs:
 
       - name: Install Elenchus（third_party 本地包，不在 lock 里）
         working-directory: backend
-        run: uv pip install ./third_party/elenchus
+        # 显式装到 backend/.venv（pytest 所在环境）：setup-uv 的 VIRTUAL_ENV 指向仓库根，
+        # 与 working-directory=backend 的 .venv 不一致，默认会装错环境导致 import 失败。
+        run: uv pip install --python .venv/bin/python ./third_party/elenchus
 
       - name: Lint（ruff 规则集钉在 pyproject，ISS-007）
         working-directory: backend
-        run: uv run ruff check src tests eval
+        run: .venv/bin/python -m ruff check src tests eval
 
       - name: Test with coverage（pytest -n 4；失败自动复跑一次甄别 flake）
         working-directory: backend
         run: |
           # ISS-014 C-4：先出覆盖率报告看基线数字，暂不设 --cov-fail-under（避免拍脑袋门槛）。
           # 注意用 --cov=src/debate 而非 --cov=debate：后者在本 editable 布局下抓不到数据。
-          # --no-sync：避免 uv run 隐式 re-sync 移除不在 lock 里的 elenchus（上一步已显式安装）
-          if ! uv run --no-sync pytest -q -n 4 --cov=src/debate --cov-report=term-missing --cov-report=xml; then
+          # 直接用 backend/.venv 的 python（避免 uv run 的 VIRTUAL_ENV 不一致 + 隐式 sync）
+          if ! .venv/bin/python -m pytest -q -n 4 --cov=src/debate --cov-report=term-missing --cov-report=xml; then
             echo "::warning::全量首次失败，复跑失败用例（ISS-014 B-4 已知边界 flake）"
-            uv run --no-sync pytest -q --lf -n 4  # 复跑只甄别 flake，覆盖率报告保留首次全量的数据
+            .venv/bin/python -m pytest -q --lf -n 4  # 复跑只甄别 flake，覆盖率报告保留首次全量的数据
           fi
 
       - name: Upload coverage report
